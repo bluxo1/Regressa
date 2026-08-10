@@ -1,0 +1,316 @@
+# Regressa
+
+**Prompt evaluation and regression-testing suite.** Run a fixed set of prompts
+against an LLM, check the outputs against expected criteria, and flag
+regressions when prompts, models, or system instructions change.
+
+The problem it solves: prompt changes have no compiler and no type system. You
+tweak a system instruction to fix one behaviour, ship it, and silently break
+three others. Regressa gives that workflow a test suite, a baseline, and a diff.
+
+```bash
+# No API key and no cost — the mock provider exercises the whole harness.
+regressa run suites/offline-demo.yaml
+```
+
+---
+
+## Install
+
+```bash
+pip install -e .
+```
+
+Semantic-similarity assertions need a local embedding model (the Anthropic API
+has no embeddings endpoint, so this can't run on your API key):
+
+```bash
+pip install -e '.[similarity]'
+```
+
+Credentials resolve exactly the way the Anthropic SDK resolves them: set
+`ANTHROPIC_API_KEY`, or run `ant auth login` and leave it unset.
+
+---
+
+## Quick start
+
+```bash
+# 1. See what a suite would do, without calling anything.
+regressa run suites/offline-demo.yaml --dry-run
+
+# 2. Run it and record the result as the baseline.
+regressa run suites/offline-demo.yaml --set-baseline
+
+# 3. Change a prompt, model, or system instruction, then re-run.
+#    Anything that used to pass and now fails is reported as a regression,
+#    and the command exits 1 so CI catches it.
+regressa run suites/offline-demo.yaml
+
+# 4. Look at movement over time.
+regressa trend --suite offline-demo
+regressa report latest -o report.html
+```
+
+---
+
+## Writing a suite
+
+A suite is one YAML file with three parts: **targets** (what to test),
+**cases** (the fixed prompts), and **assertions** (what correct looks like).
+
+```yaml
+name: support-agent
+
+vars:
+  refund_window_days: 30
+
+defaults:
+  max_tokens: 1024
+  system: |
+    You are a support agent. Refunds are available within
+    {{ refund_window_days }} days of delivery. Answer in three sentences or fewer.
+  # Applied to every case — global guardrails belong here, not copy-pasted.
+  assertions:
+    - type: not_contains
+      label: no prompt leak
+      value: ["system prompt", "my instructions"]
+
+targets:
+  - id: prod                       # current production config
+    model: claude-sonnet-5
+    effort: low
+  - id: candidate                  # the change you're evaluating
+    model: claude-opus-5
+    effort: low
+
+cases:
+  - id: refund-window
+    tags: [policy, critical]
+    prompt: "I bought a lamp three weeks ago. Can I return it?"
+    assertions:
+      - type: contains
+        label: states the window
+        value: ["30 day", "30-day"]
+        mode: any
+        weight: 2                  # counts double toward the case score
+      - type: length
+        unit: words
+        max: 90
+```
+
+A **target** is the axis of change you're hunting regressions along. Swap the
+model, edit the system prompt, or change `effort`, then diff against the
+baseline. Cases and assertions stay fixed; that's what makes the comparison mean
+something.
+
+`{{ var }}` interpolation works in prompts and the system prompt, resolved from
+suite-level `vars` merged with case-level `vars`. A missing variable is an
+error — rendering `None` into a prompt would corrupt an eval without failing it.
+
+### Assertions
+
+**Deterministic** — free, fast, no flake. These carry the load:
+
+| Type | Checks |
+|---|---|
+| `contains` / `not_contains` | Substring presence. `mode: any` \| `all`; `contains` gives partial credit. |
+| `equals` | Exact match, with optional `strip` / `ignore_case`. |
+| `regex` | Pattern match; `expect: false` asserts it must *not* match. |
+| `starts_with` / `ends_with` | Prefix / suffix. |
+| `json_valid` | Output parses as JSON (tolerates a ```json fence). |
+| `json_schema` | Validates against a JSON Schema; partial credit by error count. |
+| `json_path` | Dotted path lookup (`items.0.sku`), with `equals` or `exists`. |
+| `length` | Size in `chars` \| `words` \| `lines`, with `min` / `max`. |
+| `latency` | Wall-clock budget in ms. Skipped on cache hits. |
+| `cost` | Per-call USD budget, computed from real token usage. |
+| `tokens` | `max_input` / `max_output` ceilings. |
+
+**Model-graded** — costs money, not perfectly deterministic:
+
+| Type | Checks |
+|---|---|
+| `llm_judge` | Grades against a `rubric` with a grader model; `threshold` sets the pass bar. Uses structured outputs, so the verdict is parsed from schema-constrained JSON rather than scraped from prose. |
+| `similarity` | Embedding cosine similarity against a `reference`. Needs the `similarity` extra. |
+
+Every assertion takes an optional `label` (shown in reports) and a `weight`
+(default 1). A case **passes** only if every assertion passes; its **score** is
+the weighted mean of assertion scores. That split matters: pass/fail is the CI
+gate, while the score is the continuous signal that shows a prompt degrading
+before it actually breaks.
+
+---
+
+## Detecting regressions
+
+Every run is persisted to SQLite (`.regressa/regressa.db`). One run is pinned as
+the **baseline**, and each new run is diffed against it.
+
+```bash
+regressa baseline set latest --suite support-agent
+regressa baseline show
+regressa diff baseline latest --suite support-agent
+regressa diff latest~1 latest --suite support-agent
+```
+
+The diff classifies every case/target pair:
+
+| Class | Meaning | Fails the build |
+|---|---|---|
+| `regressed` | Passed before, fails now. | **yes** |
+| `score_drop` | Score fell by more than `--tolerance` (default 0.05). | **yes** |
+| `errored` | Provider or network failure. | no |
+| `fixed` / `score_gain` | Improvement. | no |
+| `added` / `removed` | Case/target pair appeared or disappeared. | no |
+| `unchanged` | Within tolerance. | no |
+
+Two of those classifications are deliberate, and they're the reason the gate is
+worth trusting:
+
+- **A provider error is not a regression.** A network blip is a fact about your
+  connection, not your prompt. Recording it as a regression trains people to
+  ignore red builds.
+- **A brand-new failing case is not a regression.** It never passed, so nothing
+  regressed. It shows up as `added` and you deal with it as new work.
+
+`--tolerance` exists because judge scores jitter slightly between identical runs.
+Score moves smaller than it are treated as noise.
+
+If the two runs came from different suite definitions, the diff says so (each run
+records a hash of the suite it came from) — a score change may be an edited
+assertion rather than a real regression.
+
+---
+
+## Cost, caching, and capability checks
+
+**Cost** is computed per call from real token usage against a per-model price
+table (`regressa models`), and includes grader-model spend from `llm_judge`
+assertions so nothing hides off-ledger.
+
+**Caching** is on by default. Responses are keyed on a hash of everything that
+affects output — model, prompt, system, max_tokens, effort, thinking, stop
+sequences — so re-running a suite after editing one case only pays for that
+case. `--no-cache` forces fresh calls; `regressa cache-clear` empties it.
+
+**Capability validation** runs before any request is made. The Claude API isn't
+uniform across models, and an eval harness is exactly the tool people point at
+several models at once:
+
+- `temperature` / `top_p` are **rejected with a 400** on Opus 5, Sonnet 5, and
+  Fable 5. A target that sets them is refused up front with an explanation,
+  rather than 400-ing on every case mid-run.
+- `thinking: disabled` is only accepted at effort `high` or below on Opus 5, and
+  not at all on Fable 5.
+- `max_tokens` above a model's ceiling is caught before the call.
+
+```bash
+regressa validate suites/          # schema + capability check, no calls
+regressa models                    # pricing, context, sampling support
+```
+
+Requests above ~16k `max_tokens` stream automatically, because the SDK refuses
+non-streaming requests it estimates will exceed its HTTP timeout.
+
+---
+
+## Running in CI
+
+```yaml
+- run: pip install -e .
+- run: regressa run suites/ --json results.json --html report.html
+  env:
+    ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+```
+
+Exit codes are the contract:
+
+| Code | Meaning |
+|---|---|
+| `0` | Everything passed, no regressions against the baseline. |
+| `1` | Assertion failures, regressions, or below `--fail-under`. |
+| `2` | Configuration or usage error (bad suite, uncallable target). |
+
+Commit `.regressa/regressa.db` to keep history and the baseline across CI runs,
+or cache it as a CI artifact. The HTML report is a single self-contained file
+with no external assets, so it attaches to a build cleanly.
+
+---
+
+## CLI reference
+
+| Command | What it does |
+|---|---|
+| `regressa run [PATHS]` | Run suites. `--target` `--tag` `--case` filter; `-j` sets concurrency; `--dry-run` prints the plan. |
+| `regressa validate [PATHS]` | Schema and capability check, no model calls. |
+| `regressa diff BEFORE [AFTER]` | Compare two runs. Accepts a run id, `baseline`, `latest`, `latest~N`. |
+| `regressa baseline set/show/clear` | Manage the comparison baseline. |
+| `regressa history` | List recorded runs. |
+| `regressa trend` | Score movement across runs. |
+| `regressa show [RUN]` | Print a stored run. |
+| `regressa report [RUN]` | Write an HTML report. |
+| `regressa models` | Known models: pricing, limits, sampling support. |
+| `regressa cache-clear` | Drop cached responses. |
+
+---
+
+## Offline development
+
+The `mock` provider returns deterministic responses from target `options`, so the
+entire harness — runner, assertions, storage, baselines, diffing, reports — runs
+with no API key and no cost. It's how the test suite works, and it's the fastest
+way to iterate on assertions before spending anything.
+
+```yaml
+targets:
+  - id: fixture
+    provider: mock
+    model: mock-1
+    options:
+      default: "Refunds are available within 30 days."
+      by_case:
+        greeting: "Hello! How can I help?"
+      rules:
+        - contains: "invoice"          # substring match on the rendered prompt
+          response: "Invoices go out monthly."
+      fail: null                       # set a string to simulate a provider error
+```
+
+---
+
+## Architecture
+
+```
+src/regressa/
+  capabilities.py     per-model pricing + what each model actually accepts
+  config.py           suite schema (Pydantic; unknown keys rejected)
+  loader.py           YAML loading and suite discovery
+  templating.py       {{ var }} interpolation
+  providers/          anthropic (capability-aware) + mock (offline)
+  assertions/         deterministic / judge / similarity evaluators
+  runner.py           plan → call → evaluate, with concurrency and caching
+  storage.py          SQLite runs, results, baselines, cache, trends
+  diffing.py          run-to-run comparison and regression classification
+  reporting/          rich console + self-contained HTML
+  cli.py              Typer CLI
+```
+
+Adding an assertion type means a Pydantic spec in `config.py` (added to the
+`AssertionSpec` union) plus an `@evaluator("your_type")` function. Adding a
+provider means one class with a `complete()` method, registered in
+`providers/__init__.py` — useful for a local model or an internal gateway.
+
+---
+
+## Tests
+
+```bash
+pytest
+```
+
+Everything runs offline against the mock provider and stubbed clients — no API
+key, no network, no cost.
+
+## License
+
+MIT

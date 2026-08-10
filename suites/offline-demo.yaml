@@ -1,0 +1,72 @@
+# A suite that runs with no API key and no cost, using the mock provider.
+# Try it first: `regressa run suites/offline-demo.yaml`
+#
+# It exercises every layer of the harness — templating, assertions, scoring,
+# storage, baselines, diffing, reporting — so you can learn the tool and verify
+# an install before spending anything on real model calls.
+
+name: offline-demo
+description: End-to-end walkthrough of Regressa using the deterministic mock provider.
+
+vars:
+  product: Northwind Lamp
+
+targets:
+  - id: good
+    provider: mock
+    model: mock-1
+    options:
+      latency_ms: 2
+      by_case:
+        greeting: "Hello! How can I help you with your Northwind Lamp today?"
+        json-shape: '{"order_id": "A-1", "intent": "status"}'
+        word-budget: "Refunds are available within 30 days of delivery."
+
+  # Flip a target to `bad` and re-run to watch the diff report a regression.
+  - id: bad
+    provider: mock
+    model: mock-1
+    options:
+      latency_ms: 2
+      by_case:
+        greeting: "As an AI language model, I cannot assist with that."
+        json-shape: "Sure! Here is the order: A-1, status."
+        word-budget: >
+          Refunds! Let me tell you all about refunds. Refunds are a topic of
+          great interest and considerable nuance, and I would be delighted to
+          walk you through the entire history of our returns policy in detail,
+          beginning with its origins and continuing through every subsequent
+          revision, of which there have been many over the years.
+
+cases:
+  - id: greeting
+    tags: [tone]
+    prompt: "Hi, I need help with my {{ product }}."
+    assertions:
+      - type: contains
+        label: names the product
+        value: "Northwind Lamp"
+      - type: not_contains
+        label: no AI boilerplate
+        value: ["As an AI", "I cannot assist"]
+
+  - id: json-shape
+    tags: [structured]
+    prompt: "Reply with JSON: order_id and intent."
+    assertions:
+      - type: json_valid
+      - type: json_path
+        path: intent
+        equals: status
+
+  - id: word-budget
+    tags: [tone]
+    prompt: "How long do I have to return something?"
+    assertions:
+      - type: contains
+        value: ["30 day", "30-day"]
+        mode: any
+      - type: length
+        label: stays brief
+        unit: words
+        max: 40

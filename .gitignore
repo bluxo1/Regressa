@@ -1,0 +1,18 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+.env
+.pytest_cache/
+.coverage
+htmlcov/
+.ruff_cache/
+
+# Regressa run history / reports
+.regressa/
+regressa.db
+regressa-report.html
+*.regressa.json
