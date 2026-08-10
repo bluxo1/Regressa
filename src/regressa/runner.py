@@ -28,6 +28,9 @@ class RunOptions:
     tags: list[str] | None = None
     cases: list[str] | None = None
     label: str | None = None
+    # Override suite/case `vars` for this run, so one suite can be run against
+    # several prompt variants without editing the file.
+    var_overrides: dict[str, str] = field(default_factory=dict)
     # Called with each CaseResult as it completes, for progress display.
     on_result: Callable[[CaseResult], None] | None = field(default=None, repr=False)
 
@@ -71,11 +74,20 @@ class Runner:
                 "no cases matched the given --case / --tag / --target filters"
             )
 
+        # Record var overrides in the label when the user didn't set one: a diff
+        # between two runs with different vars must not look like an unexplained
+        # regression, so the difference needs to be visible in history.
+        label = opts.label
+        if label is None and opts.var_overrides:
+            label = "vars: " + ", ".join(
+                f"{k}={_abbrev(v)}" for k, v in sorted(opts.var_overrides.items())
+            )
+
         run = RunSummary(
             run_id=new_run_id(),
             suite=suite.name,
             suite_hash=suite.fingerprint(),
-            label=opts.label,
+            label=label,
             git_sha=git_sha(),
         )
 
@@ -117,7 +129,8 @@ class Runner:
             if tag_filter and not (tag_filter & set(case.tags)):
                 continue
 
-            variables = {**suite.vars, **case.vars}
+            # CLI overrides win over case vars, which win over suite vars.
+            variables = {**suite.vars, **case.vars, **opts.var_overrides}
             try:
                 prompt = templating.render(case.prompt, variables)
             except templating.MissingVariableError as exc:
@@ -149,6 +162,7 @@ class Runner:
             top_p=target.top_p,
             options=target.options,
             case_id=task.case.id,
+            variables=task.variables,
         )
 
         result = CaseResult(
@@ -233,6 +247,12 @@ class Runner:
             )
         except capabilities.UnknownModelError:
             return 0.0
+
+
+def _abbrev(value: str, limit: int = 24) -> str:
+    """Shorten a var value for the run label; full values live in the suite."""
+    value = " ".join(value.split())
+    return value if len(value) <= limit else value[: limit - 1] + "~"
 
 
 def _weighted_score(outcomes: list[Any]) -> float:

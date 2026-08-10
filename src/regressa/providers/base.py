@@ -27,6 +27,8 @@ class CompletionRequest:
     options: dict[str, Any] = field(default_factory=dict, compare=False)
     # Set by the runner so mock rules can key off the case being run.
     case_id: str | None = None
+    # Rendered variables for this case, so mock fixtures can be parameterised.
+    variables: dict[str, Any] = field(default_factory=dict, compare=False)
 
     def cache_key(self) -> str:
         """Hash of everything that affects the model's output.

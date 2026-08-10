@@ -79,6 +79,9 @@ def run(
     case: Optional[list[str]] = typer.Option(
         None, "--case", "-k", help="Only run these case ids."
     ),
+    var: Optional[list[str]] = typer.Option(
+        None, "--var", help="Override a suite variable: --var key=value (repeatable)."
+    ),
     concurrency: int = typer.Option(4, "--concurrency", "-j", min=1, max=32),
     cache: bool = typer.Option(
         True, "--cache/--no-cache", help="Reuse identical prior responses."
@@ -110,6 +113,13 @@ def run(
     files = loader.discover(paths)
     if not files:
         _fail("no suite files found. Pass a path, or create ./suites/*.yaml")
+
+    overrides: dict[str, str] = {}
+    for item in var or []:
+        if "=" not in item:
+            _fail(f"--var expects key=value, got {item!r}")
+        key, value = item.split("=", 1)
+        overrides[key.strip()] = value
 
     store = Store(db)
     runner = Runner(store)
@@ -143,6 +153,7 @@ def run(
                         tags=tag,
                         cases=case,
                         label=label,
+                        var_overrides=overrides,
                     ),
                 )
             except ConfigError as exc:
@@ -158,7 +169,7 @@ def run(
             reporting.print_run(summary, verbose=verbose, show_passing=show_passing)
             if diff is not None:
                 reporting.print_diff(diff)
-            elif check_baseline:
+            elif check_baseline and not set_baseline:
                 console.print(
                     "[dim]No baseline stored for this suite - "
                     "run with --set-baseline to establish one.[/dim]"

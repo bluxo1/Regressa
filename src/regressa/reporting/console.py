@@ -222,14 +222,15 @@ def print_diff(diff: RunDiff, show_unchanged: bool = False) -> None:
 
 def print_runs(runs: list[RunSummary]) -> None:
     table = Table(title="run history", box=TABLE_BOX)
-    table.add_column("run id")
+    # min_width + fold: a clipped run id can't be pasted into `regressa diff`.
+    table.add_column("run id", min_width=22, overflow="fold")
     table.add_column("suite")
     table.add_column("when")
     table.add_column("pass", justify="right")
     table.add_column("score", justify="right")
     table.add_column("cost", justify="right")
     table.add_column("git")
-    table.add_column("label")
+    table.add_column("label", overflow="fold")
 
     for run in runs:
         table.add_row(
@@ -255,13 +256,13 @@ def print_trend(suite: str, points: list[dict[str, Any]]) -> None:
         box=TABLE_BOX,
     )
     table.add_column("when")
-    table.add_column("run id")
+    table.add_column("run id", min_width=22, overflow="fold")
     table.add_column("pass", justify="right")
     table.add_column("score", justify="right")
     table.add_column("delta", justify="right", width=8)
     table.add_column("", width=20)
     table.add_column("cost", justify="right")
-    table.add_column("label")
+    table.add_column("label", overflow="fold")
 
     previous: float | None = None
     for point in points:

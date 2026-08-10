@@ -1,9 +1,20 @@
 # A suite that runs with no API key and no cost, using the mock provider.
-# Try it first: `regressa run suites/offline-demo.yaml`
 #
-# It exercises every layer of the harness — templating, assertions, scoring,
-# storage, baselines, diffing, reporting — so you can learn the tool and verify
-# an install before spending anything on real model calls.
+#   # 1. Record a known-good baseline.
+#   regressa run suites/offline-demo.yaml --set-baseline
+#
+#   # 2. Degrade one behaviour and watch it get caught (exits 1).
+#   regressa run suites/offline-demo.yaml \
+#     --var greeting_reply="As an AI language model, I cannot assist with that."
+#
+# Note the shape of this: there is ONE target, `agent`, and what changes between
+# runs is its behaviour. That matters — a regression is defined per (case, target)
+# pair, so comparing two *different* target ids yields `added` / `removed` rows
+# rather than regressions. Real use works the same way: you keep the target id
+# and edit the prompt, model, or system instruction underneath it. Here the
+# `*_reply` variables stand in for that edit so the workflow is demonstrable
+# offline. The mock provider renders its responses through the same {{ }}
+# templating as prompts, which is what makes the override work.
 
 name: offline-demo
 description: End-to-end walkthrough of Regressa using the deterministic mock provider.
@@ -11,32 +22,22 @@ description: End-to-end walkthrough of Regressa using the deterministic mock pro
 vars:
   product: Northwind Lamp
 
-targets:
-  - id: good
-    provider: mock
-    model: mock-1
-    options:
-      latency_ms: 2
-      by_case:
-        greeting: "Hello! How can I help you with your Northwind Lamp today?"
-        json-shape: '{"order_id": "A-1", "intent": "status"}'
-        word-budget: "Refunds are available within 30 days of delivery."
+  # Known-good fixture responses. Override any of these with --var to simulate
+  # a behaviour change.
+  greeting_reply: "Hello! How can I help you with your Northwind Lamp today?"
+  json_reply: '{"order_id": "A-1", "intent": "status"}'
+  budget_reply: "Refunds are available within 30 days of delivery."
 
-  # Flip a target to `bad` and re-run to watch the diff report a regression.
-  - id: bad
+targets:
+  - id: agent
     provider: mock
     model: mock-1
     options:
       latency_ms: 2
       by_case:
-        greeting: "As an AI language model, I cannot assist with that."
-        json-shape: "Sure! Here is the order: A-1, status."
-        word-budget: >
-          Refunds! Let me tell you all about refunds. Refunds are a topic of
-          great interest and considerable nuance, and I would be delighted to
-          walk you through the entire history of our returns policy in detail,
-          beginning with its origins and continuing through every subsequent
-          revision, of which there have been many over the years.
+        greeting: "{{ greeting_reply }}"
+        json-shape: "{{ json_reply }}"
+        word-budget: "{{ budget_reply }}"
 
 cases:
   - id: greeting
@@ -56,6 +57,7 @@ cases:
     assertions:
       - type: json_valid
       - type: json_path
+        label: classified as a status query
         path: intent
         equals: status
 

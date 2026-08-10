@@ -29,6 +29,7 @@ import re
 import time
 from typing import Any
 
+from regressa import templating
 from regressa.providers.base import CompletionRequest, CompletionResponse, ProviderError
 
 
@@ -47,6 +48,12 @@ class MockProvider:
             raise ProviderError(str(options["fail"]))
 
         text = self._resolve(request, options)
+        # Mock-only convenience: responses go through the same `{{ var }}`
+        # templating as prompts, so one fixture suite can be parameterised with
+        # `regressa run --var reply=...` to simulate a behaviour change while
+        # keeping the target id — and therefore the diff key — stable.
+        if "{{" in text:
+            text = templating.render(text, request.variables)
         elapsed = (time.perf_counter() - started) * 1000
 
         return CompletionResponse(
