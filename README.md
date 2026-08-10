@@ -42,14 +42,26 @@ regressa run suites/offline-demo.yaml --dry-run
 # 2. Run it and record the result as the baseline.
 regressa run suites/offline-demo.yaml --set-baseline
 
-# 3. Change a prompt, model, or system instruction, then re-run.
-#    Anything that used to pass and now fails is reported as a regression,
-#    and the command exits 1 so CI catches it.
-regressa run suites/offline-demo.yaml
+# 3. Change something, then re-run. Anything that used to pass and now fails is
+#    reported as a regression, and the command exits 1 so CI catches it.
+#    (The bundled demo simulates the change with --var; in real use you'd edit
+#    the prompt, model, or system instruction and just re-run.)
+regressa run suites/offline-demo.yaml \
+  --var greeting_reply="As an AI language model, I cannot assist with that."
 
 # 4. Look at movement over time.
 regressa trend --suite offline-demo
 regressa report latest -o report.html
+```
+
+Step 3 prints exactly what broke and why:
+
+```
+| change    | case     | target | score        | detail                                    |
+| regressed | greeting | agent  | 1.00 -> 0.00 | names the product: missing ['Northwind    |
+|           |          |        |              | Lamp']; no AI boilerplate: found banned   |
+|           |          |        |              | ['As an AI', 'I cannot assist']           |
+1 regression(s). Non-zero exit for CI.
 ```
 
 ---
@@ -105,8 +117,26 @@ baseline. Cases and assertions stay fixed; that's what makes the comparison mean
 something.
 
 `{{ var }}` interpolation works in prompts and the system prompt, resolved from
-suite-level `vars` merged with case-level `vars`. A missing variable is an
-error — rendering `None` into a prompt would corrupt an eval without failing it.
+suite-level `vars` merged with case-level `vars`, and overridable per run with
+`--var key=value`. A missing variable is an error — rendering `None` into a
+prompt would corrupt an eval without failing it.
+
+`--var` is how you run one suite against several prompt variants without editing
+the file. Because a diff between two differently-parameterised runs would
+otherwise look like an unexplained regression, overrides are recorded in the run
+label automatically when you don't pass `--label`.
+
+### One target, changing behaviour
+
+Regressions are keyed on the `(case, target)` pair. Comparing two *different*
+target ids therefore gives you `added` / `removed` rows, not regressions — which
+is correct, but worth knowing when you design a suite. Keep the target id stable
+and change what sits underneath it; that's what makes the comparison meaningful.
+
+Use multiple targets for **side-by-side comparison in a single run** (does Opus 5
+beat Sonnet 5 on my cases today?) and the baseline for **change over time** (did
+today's prompt edit break what worked yesterday?). They answer different
+questions.
 
 ### Assertions
 
@@ -241,7 +271,7 @@ with no external assets, so it attaches to a build cleanly.
 
 | Command | What it does |
 |---|---|
-| `regressa run [PATHS]` | Run suites. `--target` `--tag` `--case` filter; `-j` sets concurrency; `--dry-run` prints the plan. |
+| `regressa run [PATHS]` | Run suites. `--target` `--tag` `--case` filter; `--var k=v` overrides variables; `-j` sets concurrency; `--dry-run` prints the plan. |
 | `regressa validate [PATHS]` | Schema and capability check, no model calls. |
 | `regressa diff BEFORE [AFTER]` | Compare two runs. Accepts a run id, `baseline`, `latest`, `latest~N`. |
 | `regressa baseline set/show/clear` | Manage the comparison baseline. |
@@ -275,6 +305,10 @@ targets:
           response: "Invoices go out monthly."
       fail: null                       # set a string to simulate a provider error
 ```
+
+Mock responses are themselves templated, so `--var` can swap a fixture without
+editing the suite — that's how the bundled demo simulates a behaviour change
+while keeping the target id, and therefore the diff key, stable.
 
 ---
 

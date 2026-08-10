@@ -135,7 +135,7 @@ def run(
             issues = suite.validate_targets()
             if issues:
                 for issue in issues:
-                    err.print(f"[red]{glyph('no')}[/red] [{issue.target_id}] {issue.message}")
+                    err.print(f"[red]{glyph('no')}[/red] ({issue.target_id}) {issue.message}")
                 raise typer.Exit(EXIT_CONFIG)
 
             if dry_run:
@@ -406,7 +406,7 @@ def validate(
 
         issues = suite.validate_targets()
         for issue in issues:
-            err.print(f"[red]{glyph('no')}[/red] {path} [{issue.target_id}] {issue.message}")
+            err.print(f"[red]{glyph('no')}[/red] {path} ({issue.target_id}) {issue.message}")
         problems += len(issues)
         if not issues:
             pairs = sum(len(suite.resolved_targets(c)) for c in suite.cases)

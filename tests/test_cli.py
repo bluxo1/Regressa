@@ -27,6 +27,56 @@ def test_validate_accepts_the_bundled_suites():
     assert result.exit_code == 0, result.stdout
 
 
+def test_target_ids_survive_rich_markup_parsing(tmp_path):
+    # A target id like `t` inside square brackets would be eaten as a Rich tag,
+    # hiding which target is misconfigured.
+    suite = tmp_path / "ids.yaml"
+    suite.write_text(
+        "name: ids\n"
+        "targets:\n"
+        "  - id: bold\n"
+        "    model: claude-opus-5\n"
+        "    temperature: 0.0\n"
+        "cases:\n"
+        "  - id: c\n"
+        "    prompt: hi\n",
+        encoding="utf-8",
+    )
+    result = runner.invoke(app, ["validate", str(suite)])
+    assert result.exit_code == 2
+    assert "bold" in result.output
+
+
+def test_model_output_containing_markup_is_not_interpreted(tmp_path):
+    # Model output is untrusted for markup: "[/]" would otherwise raise, and
+    # "[red]" would be swallowed instead of shown.
+    suite = tmp_path / "markup.yaml"
+    suite.write_text(
+        "name: markup\n"
+        "targets:\n"
+        "  - id: m\n"
+        "    provider: mock\n"
+        "    model: mock-1\n"
+        "    options:\n"
+        "      default: \"[red]not a tag[/] [bold]\"\n"
+        "cases:\n"
+        "  - id: c\n"
+        "    prompt: hi\n"
+        "    assertions:\n"
+        "      - type: contains\n"
+        "        value: absent-string\n",
+        encoding="utf-8",
+    )
+    result = runner.invoke(
+        app, ["run", str(suite), "--db", str(tmp_path / "m.db"), "-v"]
+    )
+    assert result.exit_code == 1
+    # A clean non-zero exit raises SystemExit; anything else (e.g. rich's
+    # MarkupError on the unbalanced "[/]") means the output was parsed as markup.
+    assert isinstance(result.exception, SystemExit)
+    assert "not a tag" in result.output
+
+
 def test_validate_rejects_a_target_that_would_400(tmp_path):
     suite = tmp_path / "bad.yaml"
     suite.write_text(

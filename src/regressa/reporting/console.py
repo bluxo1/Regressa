@@ -110,7 +110,7 @@ def print_run(run: RunSummary, verbose: bool = False, show_passing: bool = False
             f"{result.score:.2f}",
             "cached" if result.cached else f"{result.latency_ms:.0f}",
             f"${result.usage.cost_usd:.5f}",
-            _detail(result),
+            Text(_detail(result)),
         )
 
     if table.row_count:
@@ -123,7 +123,7 @@ def print_run(run: RunSummary, verbose: bool = False, show_passing: bool = False
             if not result.passed and result.output:
                 console.print(
                     Panel(
-                        result.output[:2000],
+                        Text(result.output[:2000]),
                         title=f"{result.case_id} / {result.target_id} output",
                         border_style="red",
                     )
@@ -202,7 +202,7 @@ def print_diff(diff: RunDiff, show_unchanged: bool = False) -> None:
                 delta.case_id,
                 delta.target_id,
                 f"{before} {glyph('arrow')} {after}",
-                delta.detail,
+                Text(delta.detail),
             )
             rows += 1
 
