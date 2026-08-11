@@ -170,6 +170,90 @@ def test_html_report_includes_a_trend_chart_once_there_are_two_runs(tmp_path):
     assert "<svg" in html and "polyline" in html
 
 
+# Two prompt versions as two mock targets: v2 fixes `tone` but breaks
+# `escalate` — the mixed result a real prompt rewrite usually produces.
+AB_SUITE = """
+name: ab
+targets:
+  - id: v1-live
+    provider: mock
+    model: mock-1
+    options:
+      by_case:
+        escalate: "escalating to a specialist now"
+        tone: "We sincerely apologize for any inconvenience."
+  - id: v2-candidate
+    provider: mock
+    model: mock-1
+    options:
+      by_case:
+        escalate: "handing you to a specialist now"
+        tone: "That is frustrating and I am fixing it now."
+cases:
+  - id: escalate
+    prompt: "we were breached"
+    assertions:
+      - type: contains
+        label: exact escalation phrase
+        value: "escalating to a specialist"
+  - id: tone
+    prompt: "this is unacceptable"
+    assertions:
+      - type: not_contains
+        label: no filler apology
+        value: "apologize for any inconvenience"
+"""
+
+
+def _ab_run(tmp_path) -> tuple[str, str]:
+    suite = tmp_path / "ab.yaml"
+    suite.write_text(AB_SUITE, encoding="utf-8")
+    db = str(tmp_path / "ab.db")
+    result = runner.invoke(app, ["run", str(suite), "--db", db])
+    assert result.exit_code == 1  # each target fails one case
+    return str(suite), db
+
+
+def test_compare_reports_wins_on_both_sides(tmp_path):
+    _, db = _ab_run(tmp_path)
+    result = runner.invoke(
+        app, ["compare", "v1-live", "v2-candidate", "latest", "--db", db]
+    )
+    assert result.exit_code == 0  # informational unless --fail-if-worse
+    assert "a_only" in result.output  # v2 broke `escalate`
+    assert "b_only" in result.output  # v2 fixed `tone`
+    assert "exact escalation phrase" in result.output
+
+
+def test_compare_gates_promotion_with_fail_if_worse(tmp_path):
+    _, db = _ab_run(tmp_path)
+    result = runner.invoke(
+        app,
+        ["compare", "v1-live", "v2-candidate", "latest", "--db", db, "--fail-if-worse"],
+    )
+    assert result.exit_code == 1
+    assert "Not safe to promote" in result.output
+
+
+def test_compare_the_other_way_round_is_not_a_regression(tmp_path):
+    # v1 vs v2 reversed: v1 "breaks" tone, so direction matters and is respected.
+    _, db = _ab_run(tmp_path)
+    result = runner.invoke(
+        app,
+        ["compare", "v2-candidate", "v1-live", "latest", "--db", db, "--fail-if-worse"],
+    )
+    assert result.exit_code == 1  # symmetric here: each breaks one of the other's
+
+
+def test_compare_with_an_unknown_target_is_a_usage_error(tmp_path):
+    _, db = _ab_run(tmp_path)
+    result = runner.invoke(
+        app, ["compare", "v1-live", "nope", "latest", "--db", db]
+    )
+    assert result.exit_code == 2
+    assert "nope" in result.output
+
+
 def test_fail_under_gate(tmp_path):
     db = str(tmp_path / "f.db")
     result = runner.invoke(app, ["run", DEMO, "--db", db, *DEGRADE, "--fail-under", "0.99"])

@@ -109,7 +109,10 @@ class JsonPathAssertion(AssertionBase):
 
 class LengthAssertion(AssertionBase):
     type: Literal["length"]
-    unit: Literal["chars", "words", "lines"] = "chars"
+    # `sentences` exists because "answer in N sentences or fewer" is one of the
+    # most common instructions in a real system prompt, and a word count is a
+    # poor proxy for it.
+    unit: Literal["chars", "words", "lines", "sentences"] = "chars"
     min: int | None = None
     max: int | None = None
 

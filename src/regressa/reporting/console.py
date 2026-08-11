@@ -12,7 +12,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from regressa.diffing import Change, RunDiff
+from regressa.diffing import Change, RunDiff, TargetComparison, Verdict
 from regressa.results import CaseResult, RunSummary
 
 
@@ -218,6 +218,91 @@ def print_diff(diff: RunDiff, show_unchanged: bool = False) -> None:
         )
     else:
         console.print("[green]No regressions.[/green]")
+
+
+_VERDICT_STYLE = {
+    Verdict.A_ONLY: "bold red",
+    Verdict.B_ONLY: "bold green",
+    Verdict.BOTH_PASS: "dim",
+    Verdict.BOTH_FAIL: "yellow",
+    Verdict.A_MISSING: "magenta",
+    Verdict.B_MISSING: "magenta",
+}
+
+
+def print_comparison(cmp: TargetComparison, show_ties: bool = False) -> None:
+    a, b = cmp.target_a, cmp.target_b
+    arrow = glyph("arrow")
+
+    header = (
+        f"{a} {arrow} {b}   run {cmp.run_id}   "
+        f"mean score {cmp.a_score:.3f} {arrow} {cmp.b_score:.3f} "
+        f"({cmp.b_score - cmp.a_score:+.3f})"
+    )
+    console.print(Panel(header, title="A/B comparison", border_style="cyan"))
+
+    table = Table(box=TABLE_BOX)
+    table.add_column("verdict", width=10)
+    table.add_column("case", overflow="fold")
+    # No fixed width: these headers are the user's own target ids, and a
+    # truncated "v2-cand..." makes the two columns hard to tell apart.
+    table.add_column(a, justify="center")
+    table.add_column(b, justify="center")
+    table.add_column("score", justify="right", width=16)
+    table.add_column("detail", overflow="fold")
+
+    ordering = [
+        Verdict.A_ONLY,
+        Verdict.B_ONLY,
+        Verdict.BOTH_FAIL,
+        Verdict.A_MISSING,
+        Verdict.B_MISSING,
+    ]
+    if show_ties:
+        ordering.append(Verdict.BOTH_PASS)
+
+    rows = 0
+    for verdict in ordering:
+        for delta in cmp.by_verdict(verdict):
+            a_score = glyph("dash") if delta.a_score is None else f"{delta.a_score:.2f}"
+            b_score = glyph("dash") if delta.b_score is None else f"{delta.b_score:.2f}"
+            table.add_row(
+                Text(verdict.value, style=_VERDICT_STYLE[verdict]),
+                delta.case_id,
+                _mark(delta.a_passed),
+                _mark(delta.b_passed),
+                f"{a_score} {arrow} {b_score}",
+                Text(delta.detail),
+            )
+            rows += 1
+
+    if rows:
+        console.print(table)
+
+    ties = len(cmp.by_verdict(Verdict.BOTH_PASS))
+    console.print(
+        f"{len(cmp.b_wins)} case(s) only {b} passes  "
+        f"{glyph('bullet')}  {len(cmp.a_wins)} case(s) only {a} passes  "
+        f"{glyph('bullet')}  {ties} both pass"
+    )
+
+    if cmp.b_is_worse:
+        console.print(
+            f"[bold red]{b} fails {len(cmp.a_wins)} case(s) that {a} passes.[/bold red] "
+            f"Not safe to promote over {a} as-is."
+        )
+    elif cmp.b_wins:
+        console.print(f"[green]{b} is a strict improvement over {a}.[/green]")
+    else:
+        console.print(f"[dim]No pass/fail difference between {a} and {b}.[/dim]")
+
+
+def _mark(passed: bool | None) -> Text:
+    if passed is None:
+        return Text(glyph("dash"), style="dim")
+    return (
+        Text(glyph("ok"), style="green") if passed else Text(glyph("no"), style="bold red")
+    )
 
 
 def print_runs(runs: list[RunSummary]) -> None:

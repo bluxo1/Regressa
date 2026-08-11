@@ -15,7 +15,7 @@ import typer
 from rich.console import Console
 
 from regressa import __version__, capabilities, loader, reporting
-from regressa.diffing import DEFAULT_TOLERANCE, diff_runs
+from regressa.diffing import DEFAULT_TOLERANCE, compare_targets, diff_runs
 from regressa.loader import SuiteLoadError
 from regressa.reporting.console import _width, console, glyph
 from regressa.results import RunSummary
@@ -250,6 +250,37 @@ def _resolve(store: Store, ref: str, suite: str | None) -> RunSummary:
             hint = " - pass --suite so it can be resolved"
         _fail(f"could not resolve run {ref!r}{hint}")
     return resolved  # type: ignore[return-value]
+
+
+@app.command()
+def compare(
+    target_a: str = typer.Argument(..., help="Baseline target id, e.g. the live prompt."),
+    target_b: str = typer.Argument(..., help="Candidate target id, e.g. the new prompt."),
+    run_id: str = typer.Argument("latest", help="Run id, `latest`, `latest~N`, or `baseline`."),
+    suite: Optional[str] = typer.Option(None, "--suite", "-s"),
+    db: Optional[str] = typer.Option(None, "--db"),
+    show_ties: bool = typer.Option(False, "--show-ties", help="Also list cases both pass."),
+    fail_if_worse: bool = typer.Option(
+        False,
+        "--fail-if-worse",
+        help="Exit 1 if the candidate fails any case the baseline passes.",
+    ),
+) -> None:
+    """A/B two targets within one run — e.g. two versions of a system prompt.
+
+    Distinct from `diff`, which compares one target across two runs. Here both
+    targets saw the same inputs in the same run, so model drift cancels out.
+    """
+    with Store(db) as store:
+        run = _resolve(store, run_id, suite)
+        try:
+            result = compare_targets(run, target_a, target_b)
+        except ValueError as exc:
+            _fail(str(exc))
+        reporting.print_comparison(result, show_ties=show_ties)
+
+    worse = result.b_is_worse
+    raise typer.Exit(EXIT_FAILED if (worse and fail_if_worse) else EXIT_OK)
 
 
 @app.command(name="history")

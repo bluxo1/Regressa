@@ -106,6 +106,31 @@ def test_length_counts_words():
     assert out.detail["size"] == 4
 
 
+def test_length_counts_sentences():
+    out = evaluate(
+        spec(type="length", unit="sentences", max=3),
+        ctx("One. Two! Three? Four."),
+    )
+    assert out.passed is False
+    assert out.detail["size"] == 4
+
+
+def test_sentence_count_ignores_common_abbreviations():
+    # "e.g." and "Dr." must not each read as a sentence boundary.
+    out = evaluate(
+        spec(type="length", unit="sentences", max=2),
+        ctx("Share it with anyone, e.g. Dr. Chen. Then set permissions."),
+    )
+    assert out.detail["size"] == 2
+    assert out.passed is True
+
+
+def test_sentence_count_tolerates_a_missing_final_period():
+    out = evaluate(spec(type="length", unit="sentences", max=1), ctx("Just one clause"))
+    assert out.detail["size"] == 1
+    assert out.passed is True
+
+
 def test_length_requires_a_bound():
     with pytest.raises(Exception):
         spec(type="length", unit="words")

@@ -196,3 +196,145 @@ def _why(result: CaseResult) -> str:
     if not failed:
         return "now failing"
     return "; ".join(f"{a.label or a.type}: {a.message}" for a in failed[:3])
+
+
+# --------------------------------------------------------------------------- #
+# Target-vs-target comparison (A/B two prompt versions within one run)
+# --------------------------------------------------------------------------- #
+#
+# This answers a different question from `diff_runs`. That one asks "did today
+# break what worked yesterday" — same target, two points in time. This asks "is
+# version B better than version A" — two targets, same inputs, same moment, so
+# model drift and flake cancel out.
+
+
+class Verdict(str, Enum):
+    A_ONLY = "a_only"      # A passes, B fails — B is a step back
+    B_ONLY = "b_only"      # B passes, A fails — B is an improvement
+    BOTH_PASS = "both_pass"
+    BOTH_FAIL = "both_fail"
+    A_MISSING = "a_missing"
+    B_MISSING = "b_missing"
+
+
+@dataclass
+class TargetDelta:
+    case_id: str
+    verdict: Verdict
+    a_passed: bool | None = None
+    b_passed: bool | None = None
+    a_score: float | None = None
+    b_score: float | None = None
+    detail: str = ""
+
+    @property
+    def score_delta(self) -> float | None:
+        if self.a_score is None or self.b_score is None:
+            return None
+        return self.b_score - self.a_score
+
+
+@dataclass
+class TargetComparison:
+    run_id: str
+    target_a: str
+    target_b: str
+    deltas: list[TargetDelta] = field(default_factory=list)
+
+    def by_verdict(self, verdict: Verdict) -> list[TargetDelta]:
+        return [d for d in self.deltas if d.verdict is verdict]
+
+    @property
+    def a_wins(self) -> list[TargetDelta]:
+        return self.by_verdict(Verdict.A_ONLY)
+
+    @property
+    def b_wins(self) -> list[TargetDelta]:
+        return self.by_verdict(Verdict.B_ONLY)
+
+    @property
+    def b_is_worse(self) -> bool:
+        """True when B fails something A passed — the gate for promoting B."""
+        return bool(self.a_wins)
+
+    @property
+    def a_score(self) -> float:
+        scores = [d.a_score for d in self.deltas if d.a_score is not None]
+        return sum(scores) / len(scores) if scores else 0.0
+
+    @property
+    def b_score(self) -> float:
+        scores = [d.b_score for d in self.deltas if d.b_score is not None]
+        return sum(scores) / len(scores) if scores else 0.0
+
+
+def compare_targets(run: RunSummary, target_a: str, target_b: str) -> TargetComparison:
+    """A/B two targets inside a single run.
+
+    Raises ValueError when a target id isn't present, rather than silently
+    reporting every case as missing — a typo in a target id should be loud.
+    """
+    present = {r.target_id for r in run.results}
+    for name in (target_a, target_b):
+        if name not in present:
+            raise ValueError(
+                f"target {name!r} is not in run {run.run_id}. "
+                f"Targets in this run: {', '.join(sorted(present)) or '(none)'}"
+            )
+
+    a_map = {r.case_id: r for r in run.results if r.target_id == target_a}
+    b_map = {r.case_id: r for r in run.results if r.target_id == target_b}
+
+    comparison = TargetComparison(run_id=run.run_id, target_a=target_a, target_b=target_b)
+
+    for case_id in sorted(a_map.keys() | b_map.keys()):
+        a = a_map.get(case_id)
+        b = b_map.get(case_id)
+
+        if a is None:
+            comparison.deltas.append(
+                TargetDelta(
+                    case_id=case_id,
+                    verdict=Verdict.A_MISSING,
+                    b_passed=b.passed if b else None,
+                    b_score=b.score if b else None,
+                    detail=f"case not run against {target_a}",
+                )
+            )
+            continue
+        if b is None:
+            comparison.deltas.append(
+                TargetDelta(
+                    case_id=case_id,
+                    verdict=Verdict.B_MISSING,
+                    a_passed=a.passed,
+                    a_score=a.score,
+                    detail=f"case not run against {target_b}",
+                )
+            )
+            continue
+
+        # Name the target in the detail: "only B passes" plus a bare failure
+        # reason is ambiguous about whose failure is being described.
+        if a.passed and not b.passed:
+            verdict, detail = Verdict.A_ONLY, f"{target_b} failed - {_why(b)}"
+        elif b.passed and not a.passed:
+            verdict, detail = Verdict.B_ONLY, f"{target_a} failed - {_why(a)}"
+        elif a.passed and b.passed:
+            verdict, detail = Verdict.BOTH_PASS, ""
+        else:
+            verdict, detail = Verdict.BOTH_FAIL, f"{target_b} failed - {_why(b)}"
+
+        comparison.deltas.append(
+            TargetDelta(
+                case_id=case_id,
+                verdict=verdict,
+                a_passed=a.passed,
+                b_passed=b.passed,
+                a_score=a.score,
+                b_score=b.score,
+                detail=detail,
+            )
+        )
+
+    return comparison

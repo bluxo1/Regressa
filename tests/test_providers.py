@@ -168,6 +168,32 @@ def test_system_and_stop_sequences_are_forwarded():
     assert params["messages"] == [{"role": "user", "content": "hello"}]
 
 
+def test_missing_credentials_produces_an_actionable_message():
+    # The SDK resolves credentials lazily and raises a bare TypeError at request
+    # time, so this must be recognised from the failing call, not construction.
+    auth_error = TypeError(
+        "Could not resolve authentication method. Expected one of api_key, "
+        "auth_token, or credentials to be set."
+    )
+    provider = AnthropicProvider(StubClient(raises=auth_error))
+
+    with pytest.raises(ProviderError) as exc:
+        provider.complete(request())
+
+    message = str(exc.value)
+    assert "ANTHROPIC_API_KEY" in message
+    assert "ant auth login" in message
+    assert "mock" in message
+
+
+def test_a_genuine_type_error_is_not_mistaken_for_missing_credentials():
+    provider = AnthropicProvider(StubClient(raises=TypeError("bad argument 'foo'")))
+    with pytest.raises(ProviderError) as exc:
+        provider.complete(request())
+    assert "bad argument" in str(exc.value)
+    assert "ANTHROPIC_API_KEY" not in str(exc.value)
+
+
 def test_latency_is_measured():
     client = StubClient(Message(content=[Block(type="text", text="x")]))
     response = AnthropicProvider(client).complete(request())

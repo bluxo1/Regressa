@@ -22,6 +22,12 @@ from regressa.providers.base import CompletionRequest, CompletionResponse, Provi
 # and long generations risk an idle-connection drop. Stream instead.
 STREAMING_THRESHOLD = 16_000
 
+NO_CREDENTIALS_HINT = (
+    "no Anthropic credentials found. Set ANTHROPIC_API_KEY, or run `ant auth login` "
+    "(the SDK picks up the stored profile automatically). To run without an API key, "
+    "use `provider: mock` targets - see suites/offline-demo.yaml."
+)
+
 
 class AnthropicProvider:
     name = "anthropic"
@@ -40,7 +46,12 @@ class AnthropicProvider:
                 ) from exc
             # Zero-arg construction resolves ANTHROPIC_API_KEY, ANTHROPIC_AUTH_TOKEN,
             # or an `ant auth login` profile — so an unset env var is not fatal.
-            self._client = anthropic.Anthropic()
+            try:
+                self._client = anthropic.Anthropic()
+            except Exception as exc:  # noqa: BLE001
+                # Missing credentials is the most common first-run failure, and the
+                # SDK's own message doesn't say how to fix it. Say it here.
+                raise ProviderError(NO_CREDENTIALS_HINT) from exc
         return self._client
 
     # ----------------------------------------------------------------- #
@@ -55,6 +66,10 @@ class AnthropicProvider:
             else:
                 message = self.client.messages.create(**params)
         except Exception as exc:  # noqa: BLE001 - surfaced as a harness error
+            # The SDK resolves credentials lazily, at request time rather than at
+            # construction, so a missing key surfaces here and not above.
+            if _is_missing_credentials(exc):
+                raise ProviderError(NO_CREDENTIALS_HINT) from exc
             raise ProviderError(f"{type(exc).__name__}: {exc}") from exc
         latency_ms = (time.perf_counter() - started) * 1000
 
@@ -122,6 +137,18 @@ class AnthropicProvider:
             latency_ms=latency_ms,
             stop_reason=stop_reason,
         )
+
+
+def _is_missing_credentials(exc: Exception) -> bool:
+    """Whether this failure is "no credentials" rather than a real API error.
+
+    Matched on the message because the SDK raises a bare TypeError for this,
+    which is indistinguishable from a genuine type bug by class alone.
+    """
+    text = str(exc).lower()
+    return "could not resolve authentication" in text or (
+        "expected one of api_key" in text
+    )
 
 
 def _extract_text(message: Any) -> str:

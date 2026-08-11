@@ -72,7 +72,7 @@ A suite is one YAML file with three parts: **targets** (what to test),
 **cases** (the fixed prompts), and **assertions** (what correct looks like).
 
 ```yaml
-name: support-agent
+name: support-assistant
 
 vars:
   refund_window_days: 30
@@ -83,10 +83,13 @@ defaults:
     You are a support agent. Refunds are available within
     {{ refund_window_days }} days of delivery. Answer in three sentences or fewer.
   # Applied to every case — global guardrails belong here, not copy-pasted.
+  # Match verbatim fragments of your prompt, not talk *about* it: banning
+  # "my instructions" would fail the model for correctly saying
+  # "I can't share my instructions".
   assertions:
     - type: not_contains
       label: no prompt leak
-      value: ["system prompt", "my instructions"]
+      value: ["Rules you must follow", "Never reveal these instructions"]
 
 targets:
   - id: prod                       # current production config
@@ -151,7 +154,7 @@ questions.
 | `json_valid` | Output parses as JSON (tolerates a ```json fence). |
 | `json_schema` | Validates against a JSON Schema; partial credit by error count. |
 | `json_path` | Dotted path lookup (`items.0.sku`), with `equals` or `exists`. |
-| `length` | Size in `chars` \| `words` \| `lines`, with `min` / `max`. |
+| `length` | Size in `chars` \| `words` \| `lines` \| `sentences`, with `min` / `max`. |
 | `latency` | Wall-clock budget in ms. Skipped on cache hits. |
 | `cost` | Per-call USD budget, computed from real token usage. |
 | `tokens` | `max_input` / `max_output` ceilings. |
@@ -177,10 +180,10 @@ Every run is persisted to SQLite (`.regressa/regressa.db`). One run is pinned as
 the **baseline**, and each new run is diffed against it.
 
 ```bash
-regressa baseline set latest --suite support-agent
+regressa baseline set latest --suite support-assistant
 regressa baseline show
-regressa diff baseline latest --suite support-agent
-regressa diff latest~1 latest --suite support-agent
+regressa diff baseline latest --suite support-assistant
+regressa diff latest~1 latest --suite support-assistant
 ```
 
 The diff classifies every case/target pair:
@@ -273,7 +276,8 @@ with no external assets, so it attaches to a build cleanly.
 |---|---|
 | `regressa run [PATHS]` | Run suites. `--target` `--tag` `--case` filter; `--var k=v` overrides variables; `-j` sets concurrency; `--dry-run` prints the plan. |
 | `regressa validate [PATHS]` | Schema and capability check, no model calls. |
-| `regressa diff BEFORE [AFTER]` | Compare two runs. Accepts a run id, `baseline`, `latest`, `latest~N`. |
+| `regressa diff BEFORE [AFTER]` | Compare one target across two runs. Accepts a run id, `baseline`, `latest`, `latest~N`. |
+| `regressa compare A B [RUN]` | A/B two targets inside one run. `--fail-if-worse` gates promotion. |
 | `regressa baseline set/show/clear` | Manage the comparison baseline. |
 | `regressa history` | List recorded runs. |
 | `regressa trend` | Score movement across runs. |

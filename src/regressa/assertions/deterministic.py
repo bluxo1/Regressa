@@ -208,12 +208,28 @@ def _dig(data: Any, dotted: str) -> Any:
     return current
 
 
+def _count_sentences(text: str) -> int:
+    """Count sentences, tolerating the abbreviations that show up in support prose.
+
+    Deliberately simple: this backs a "three sentences maximum" style prompt rule,
+    where the interesting signal is 3 vs 8, not 3 vs 4. Protecting common
+    abbreviations keeps "e.g." and "Dr." from inflating the count.
+    """
+    protected = text
+    for abbrev in ("e.g.", "i.e.", "etc.", "vs.", "Mr.", "Mrs.", "Ms.", "Dr.", "No."):
+        protected = protected.replace(abbrev, abbrev.replace(".", "\0"))
+    parts = re.split(r"[.!?]+(?=\s|$)", protected)
+    return len([p for p in parts if p.strip()])
+
+
 @evaluator("length")
 def _length(spec: Any, ctx: EvalContext):
     if spec.unit == "words":
         size = len(ctx.output.split())
     elif spec.unit == "lines":
         size = len(ctx.output.splitlines())
+    elif spec.unit == "sentences":
+        size = _count_sentences(ctx.output)
     else:
         size = len(ctx.output)
 
