@@ -455,7 +455,11 @@ def models() -> None:
     """List models Regressa knows how to price and validate."""
     from rich.table import Table
 
-    table = Table(title="known models")
+    from datetime import date
+
+    today = date.today()
+
+    table = Table(title=f"known models (rates in force {today.isoformat()})")
     table.add_column("model")
     table.add_column("in $/MTok", justify="right")
     table.add_column("out $/MTok", justify="right")
@@ -467,10 +471,20 @@ def models() -> None:
 
     for name in capabilities.known_models():
         caps = capabilities.get(name)
+        rates = caps.rates(today)
+        # Show the rate actually being charged; note the list price beside it so
+        # a promotional rate is never mistaken for the permanent one.
+        if rates.promo_active:
+            in_cell = f"[green]{rates.input_per_mtok:.2f}[/green]/{caps.input_per_mtok:.2f}"
+            out_cell = f"[green]{rates.output_per_mtok:.2f}[/green]/{caps.output_per_mtok:.2f}"
+        else:
+            in_cell = f"{rates.input_per_mtok:.2f}"
+            out_cell = f"{rates.output_per_mtok:.2f}"
+
         table.add_row(
             name,
-            f"{caps.input_per_mtok:.2f}",
-            f"{caps.output_per_mtok:.2f}",
+            in_cell,
+            out_cell,
             f"{caps.context_window:,}",
             f"{caps.max_output_tokens:,}",
             "[green]yes[/green]" if caps.supports_sampling else "[red]rejected[/red]",
@@ -482,3 +496,18 @@ def models() -> None:
         "[dim]`sampling: rejected` means temperature/top_p return a 400 on that "
         "model - Regressa refuses to send them and flags the target instead.[/dim]"
     )
+
+    promos = capabilities.active_promos(today)
+    if promos:
+        console.print(
+            "[dim]Rates shown as [green]promo[/green]/list are on temporary "
+            "pricing. When a promotion ends, cost figures rise with no prompt "
+            "change, which can trip a `cost` assertion overnight:[/dim]"
+        )
+        for name, rates in promos:
+            assert rates.promo_until is not None
+            days = (rates.promo_until - today).days
+            console.print(
+                f"  [dim]{name}: promo ends {rates.promo_until.isoformat()} "
+                f"({days} day(s) from now)[/dim]"
+            )

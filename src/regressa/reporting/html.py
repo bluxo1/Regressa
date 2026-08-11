@@ -12,7 +12,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from regressa.diffing import RunDiff
+from regressa.diffing import RunDiff, TargetComparison, Verdict
 from regressa.results import RunSummary
 
 _CSS = """
@@ -66,6 +66,7 @@ def render_report(
     run: RunSummary,
     trend: list[dict[str, Any]] | None = None,
     diff: RunDiff | None = None,
+    comparison: TargetComparison | None = None,
 ) -> str:
     e = html.escape
     status_class = "pass" if run.failed == 0 else "fail"
@@ -124,6 +125,11 @@ def render_report(
         + f" · suite hash <code>{e(run.suite_hash)}</code></p>",
         f'<div class="cards">{card_html}</div>',
     ]
+
+    # The A/B goes above the run's own results: when you asked for a comparison,
+    # the verdict is the headline and the per-case table is the evidence.
+    if comparison is not None:
+        sections.append(_comparison_section(comparison))
 
     if diff is not None:
         sections.append(_diff_section(diff))

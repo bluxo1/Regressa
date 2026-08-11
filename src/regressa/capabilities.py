@@ -15,11 +15,17 @@ config mistake surfaces as a config error rather than a failed eval.
 Prices are USD per million tokens, first-party Anthropic API rates, cached
 2026-06-24. Bedrock/Vertex are partner-operated with separate pricing — if you
 point Regressa at those, override `input`/`output` in your suite.
+
+Promotional pricing is modelled with an explicit end date rather than baked into
+the headline rate. Writing an intro price directly into `input_per_mtok` is wrong
+the day the promotion ends, and silently so: every cost figure and every `cost`
+assertion drifts with no code change to blame.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+from datetime import date
 
 EffortLevel = str  # "low" | "medium" | "high" | "xhigh" | "max"
 
@@ -27,8 +33,38 @@ ALL_EFFORT: tuple[str, ...] = ("low", "medium", "high", "xhigh", "max")
 
 
 @dataclass(frozen=True)
+class PromoPrice:
+    """A temporary rate that applies up to and including `until`."""
+
+    input_per_mtok: float
+    output_per_mtok: float
+    until: date
+
+
+@dataclass(frozen=True)
+class Rates:
+    """The rates in force on a given day, list or promotional."""
+
+    input_per_mtok: float
+    output_per_mtok: float
+    promo_active: bool = False
+    promo_until: date | None = None
+
+    # Cache pricing follows the standard multipliers on whichever input rate
+    # is actually in force.
+    @property
+    def cache_read_per_mtok(self) -> float:
+        return self.input_per_mtok * 0.1
+
+    @property
+    def cache_write_per_mtok(self) -> float:
+        return self.input_per_mtok * 1.25
+
+
+@dataclass(frozen=True)
 class ModelCapabilities:
     model: str
+    # List price. Use `rates()` for what a request actually costs today.
     input_per_mtok: float
     output_per_mtok: float
     context_window: int
@@ -43,16 +79,26 @@ class ModelCapabilities:
     disabled_thinking_max_effort: str | None = "max"
     # True when omitting `thinking` still runs adaptive thinking (affects cost).
     thinking_on_by_default: bool = False
+    # Temporary pricing that supersedes the list rate until its end date.
+    promo: PromoPrice | None = None
     notes: str = ""
 
-    # Cache pricing follows the standard multipliers on the input rate.
-    @property
-    def cache_read_per_mtok(self) -> float:
-        return self.input_per_mtok * 0.1
-
-    @property
-    def cache_write_per_mtok(self) -> float:
-        return self.input_per_mtok * 1.25
+    def rates(self, on: date | None = None) -> Rates:
+        """Rates in force on `on` (default: today)."""
+        day = on or date.today()
+        if self.promo is not None and day <= self.promo.until:
+            return Rates(
+                input_per_mtok=self.promo.input_per_mtok,
+                output_per_mtok=self.promo.output_per_mtok,
+                promo_active=True,
+                promo_until=self.promo.until,
+            )
+        return Rates(
+            input_per_mtok=self.input_per_mtok,
+            output_per_mtok=self.output_per_mtok,
+            promo_active=False,
+            promo_until=self.promo.until if self.promo else None,
+        )
 
 
 _MODELS: dict[str, ModelCapabilities] = {
@@ -85,7 +131,10 @@ _MODELS: dict[str, ModelCapabilities] = {
         max_output_tokens=128_000,
         supports_sampling=False,
         thinking_on_by_default=True,
-        notes="Introductory pricing of $2/$10 per MTok applies through 2026-08-31.",
+        promo=PromoPrice(
+            input_per_mtok=2.00, output_per_mtok=10.00, until=date(2026, 8, 31)
+        ),
+        notes="Intro pricing $2/$10 per MTok through 2026-08-31, then $3/$15.",
     ),
     "claude-sonnet-4-6": ModelCapabilities(
         model="claude-sonnet-4-6",
@@ -162,15 +211,36 @@ def price(
     output_tokens: int,
     cache_read_tokens: int = 0,
     cache_write_tokens: int = 0,
+    on: date | None = None,
 ) -> float:
-    """Cost in USD for one request's token usage."""
-    caps = get(model)
+    """Cost in USD for one request's token usage, at the rates in force on `on`.
+
+    `on` defaults to today, which is what a live run wants. Costs are stored on
+    the run when it happens, so a historical run keeps the price it was actually
+    charged rather than being re-priced later at a different rate.
+    """
+    rates = get(model).rates(on)
     return (
-        input_tokens * caps.input_per_mtok
-        + output_tokens * caps.output_per_mtok
-        + cache_read_tokens * caps.cache_read_per_mtok
-        + cache_write_tokens * caps.cache_write_per_mtok
+        input_tokens * rates.input_per_mtok
+        + output_tokens * rates.output_per_mtok
+        + cache_read_tokens * rates.cache_read_per_mtok
+        + cache_write_tokens * rates.cache_write_per_mtok
     ) / 1_000_000
+
+
+def active_promos(on: date | None = None) -> list[tuple[str, Rates]]:
+    """Models currently on promotional pricing, for surfacing in `regressa models`.
+
+    Worth showing: a promotion ending shifts every cost figure with no prompt
+    change, which can trip a `cost` assertion overnight.
+    """
+    day = on or date.today()
+    out = []
+    for name in known_models():
+        rates = get(name).rates(day)
+        if rates.promo_active:
+            out.append((name, rates))
+    return out
 
 
 @dataclass
