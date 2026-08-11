@@ -14,7 +14,8 @@ from typing import Optional
 import typer
 from rich.console import Console
 
-from regressa import __version__, capabilities, loader, reporting
+from regressa import __version__, calibration, capabilities, loader, reporting
+from regressa import doctor as doctor_mod
 from regressa.diffing import DEFAULT_TOLERANCE, compare_targets, diff_runs
 from regressa.loader import SuiteLoadError
 from regressa.reporting.console import _width, console, glyph
@@ -422,6 +423,55 @@ def baseline_clear(
 # --------------------------------------------------------------------------- #
 # utilities
 # --------------------------------------------------------------------------- #
+
+
+@app.command()
+def doctor(
+    model: str = typer.Option(
+        doctor_mod.DEFAULT_MODEL, "--model", "-m", help="Model to check against."
+    ),
+) -> None:
+    """Verify the Anthropic integration against the live API. Needs a key.
+
+    Makes a handful of tiny calls (a fraction of a cent) to confirm that the
+    requests Regressa builds are accepted and its response parsing matches
+    reality. One check is free: a request the API should reject, which validates
+    the capability table.
+    """
+    try:
+        capabilities.get(model)
+    except capabilities.UnknownModelError as exc:
+        _fail(str(exc))
+
+    diag = doctor_mod.diagnose(model)
+    reporting.print_diagnosis(diag)
+    raise typer.Exit(EXIT_FAILED if not diag.ok else EXIT_OK)
+
+
+@app.command()
+def calibrate(
+    suite: Optional[str] = typer.Option(None, "--suite", "-s"),
+    limit: int = typer.Option(10, "--limit", "-n", min=2, help="Runs to compare."),
+    db: Optional[str] = typer.Option(None, "--db"),
+) -> None:
+    """Measure run-to-run jitter and recommend a `--tolerance`.
+
+    Uses runs already in history, so it costs nothing. Needs at least two runs of
+    the same suite definition; for a meaningful number those should be real runs
+    made with --no-cache, since cached responses are identical by construction.
+    """
+    with Store(db) as store:
+        names = [suite] if suite else store.suites()
+        if not names:
+            console.print("No runs recorded yet.")
+            raise typer.Exit(EXIT_OK)
+        for name in names:
+            runs = store.list_runs(suite=name, limit=limit)
+            # list_runs omits per-case results; calibration needs them.
+            detailed = [store.get_run(r.run_id) for r in runs]
+            reporting.print_calibration(
+                calibration.calibrate([r for r in detailed if r is not None])
+            )
 
 
 @app.command("cache-clear")

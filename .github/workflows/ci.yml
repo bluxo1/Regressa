@@ -5,6 +5,12 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  schedule:
+    # Monday 06:00 UTC. The `similarity` and `eval` jobs are gated on this, and
+    # without it they could only ever be triggered by hand. `eval` spends real
+    # money (a few cents a run) -- delete this trigger if you would rather run it
+    # only on demand, or tighten it to a day you're watching.
+    - cron: "0 6 * * 1"
 
 concurrency:
   # A new push supersedes an in-flight run on the same ref.

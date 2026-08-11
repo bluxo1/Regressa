@@ -1,7 +1,9 @@
 """Report renderers."""
 
 from regressa.reporting.console import (
+    print_calibration,
     print_comparison,
+    print_diagnosis,
     print_diff,
     print_run,
     print_runs,
@@ -19,6 +21,8 @@ from regressa.reporting.html import (
 __all__ = [
     "print_run",
     "print_comparison",
+    "print_calibration",
+    "print_diagnosis",
     "print_diff",
     "print_runs",
     "print_summary",

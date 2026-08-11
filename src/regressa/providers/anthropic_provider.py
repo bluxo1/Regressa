@@ -28,6 +28,12 @@ NO_CREDENTIALS_HINT = (
     "use `provider: mock` targets - see suites/offline-demo.yaml."
 )
 
+LOW_CREDIT_HINT = (
+    "the API key is valid but the account has no credit balance, so the API "
+    "refused the request. Add credits at console.anthropic.com -> Plans & Billing, "
+    "then re-run. Nothing was charged: rejected requests are not billed."
+)
+
 
 class AnthropicProvider:
     name = "anthropic"
@@ -70,6 +76,10 @@ class AnthropicProvider:
             # construction, so a missing key surfaces here and not above.
             if _is_missing_credentials(exc):
                 raise ProviderError(NO_CREDENTIALS_HINT) from exc
+            # An exhausted balance is an account problem, not a prompt problem, and
+            # the raw 400 body buries that under a wall of JSON on every case.
+            if _is_low_credit(exc):
+                raise ProviderError(LOW_CREDIT_HINT) from exc
             raise ProviderError(f"{type(exc).__name__}: {exc}") from exc
         latency_ms = (time.perf_counter() - started) * 1000
 
@@ -149,6 +159,16 @@ def _is_missing_credentials(exc: Exception) -> bool:
     return "could not resolve authentication" in text or (
         "expected one of api_key" in text
     )
+
+
+def _is_low_credit(exc: Exception) -> bool:
+    """Whether this 400 means "no credit balance" rather than a bad request.
+
+    Matched on the message because the SDK raises a plain BadRequestError for
+    both, and telling a user their request was malformed when their account is
+    simply out of credit sends them debugging the wrong thing.
+    """
+    return "credit balance is too low" in str(exc).lower()
 
 
 def _extract_text(message: Any) -> str:

@@ -305,6 +305,118 @@ def _mark(passed: bool | None) -> Text:
     )
 
 
+def print_diagnosis(diag: Any) -> None:
+    """Render a `regressa doctor` result."""
+    table = Table(title=f"integration check against {diag.model}", box=TABLE_BOX)
+    table.add_column("", width=7)
+    table.add_column("check")
+    table.add_column("detail", overflow="fold")
+
+    for check in diag.checks:
+        if check.skipped:
+            mark = Text("SKIP", style="dim")
+        elif check.passed:
+            mark = Text("OK", style="green")
+        else:
+            mark = Text("FAIL", style="bold red")
+        table.add_row(mark, check.name, Text(check.detail))
+
+    console.print(table)
+
+    verdict = (
+        "[green]The Anthropic integration works against the live API.[/green]"
+        if diag.ok
+        else f"[bold red]{len(diag.failures)} check(s) failed.[/bold red]"
+    )
+    console.print(
+        Panel(
+            f"{verdict}  spent ${diag.cost_usd:.6f}",
+            border_style="green" if diag.ok else "red",
+            title="doctor",
+        )
+    )
+
+
+def print_calibration(cal: Any, limit: int = 15) -> None:
+    """Render a `regressa calibrate` result."""
+    if not cal.enough_data:
+        console.print(
+            f"[yellow]Not enough data.[/yellow] Found {cal.runs_compared} comparable "
+            f"run(s) of {cal.suite!r}; need at least 2 built from the same suite "
+            "definition. Run the suite again (with --no-cache, so responses are "
+            "regenerated) and re-run calibrate."
+        )
+        return
+
+    header = (
+        f"{cal.suite}   {cal.runs_compared} run(s) compared   "
+        f"suite hash {cal.suite_hash}"
+    )
+    if cal.runs_ignored:
+        header += f"   ({cal.runs_ignored} ignored: different suite definition)"
+    console.print(Panel(header, title="calibration", border_style="cyan"))
+
+    if cal.flapping:
+        console.print(
+            f"[bold red]{len(cal.flapping)} case(s) flap[/bold red] - they pass in "
+            "some runs and fail in others. No tolerance fixes this: pass/fail is not "
+            "a threshold on the score. Tighten the assertion or make the rubric less "
+            "ambiguous."
+        )
+        flap = Table(box=TABLE_BOX)
+        flap.add_column("case")
+        flap.add_column("target")
+        flap.add_column("pass/fail across runs")
+        flap.add_column("scores")
+        for c in cal.flapping:
+            states = " ".join(glyph("ok") if p else glyph("no") for p in c.pass_states)
+            flap.add_row(
+                c.case_id, c.target_id, states, " ".join(f"{s:.2f}" for s in c.scores)
+            )
+        console.print(flap)
+
+    jittery = cal.jittery[:limit]
+    if jittery:
+        table = Table(title="score jitter (worst first)", box=TABLE_BOX)
+        table.add_column("case")
+        table.add_column("target")
+        table.add_column("runs", justify="right", width=5)
+        table.add_column("mean", justify="right", width=6)
+        table.add_column("spread", justify="right", width=7)
+        table.add_column("stdev", justify="right", width=7)
+        for c in jittery:
+            table.add_row(
+                c.case_id,
+                c.target_id,
+                str(c.runs),
+                f"{c.mean:.3f}",
+                f"{c.spread:.3f}",
+                f"{c.stdev:.3f}",
+            )
+        console.print(table)
+    elif not cal.flapping:
+        console.print(
+            "[green]No jitter at all[/green] - every case scored identically across "
+            "runs. Either your assertions are fully deterministic, or the response "
+            "cache served the same outputs (re-run with --no-cache to measure real "
+            "variance)."
+        )
+
+    stable = sum(1 for c in cal.cases if c.stable)
+    console.print(
+        f"{stable}/{len(cal.cases)} case(s) perfectly stable  "
+        f"{glyph('bullet')}  worst spread {cal.max_spread:.3f}"
+    )
+    console.print(
+        Panel(
+            f"Recommended: [bold]--tolerance {cal.recommended_tolerance:.2f}[/bold]"
+            f"  (worst non-flapping jitter x{1.5:g} headroom)",
+            border_style="cyan",
+            title="tolerance",
+        )
+    )
+
+
 def print_runs(runs: list[RunSummary]) -> None:
     table = Table(title="run history", box=TABLE_BOX)
     # min_width + fold: a clipped run id can't be pasted into `regressa diff`.

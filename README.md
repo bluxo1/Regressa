@@ -315,6 +315,53 @@ Commit `.regressa/regressa.db` to keep history and the baseline across CI runs,
 or cache it as a CI artifact. The HTML report is a single self-contained file
 with no external assets, so it attaches to a build cleanly.
 
+`.github/workflows/ci.yml` ships a working setup with three jobs:
+
+| Job | Trigger | Needs a key |
+|---|---|---|
+| `test` | every push and PR | no |
+| `similarity` | manual / scheduled | no (installs torch, so it's kept off the hot path) |
+| `eval` | manual / scheduled | yes — `ANTHROPIC_API_KEY` in repository secrets |
+
+The `test` job runs `pytest -m "not slow"`, validates the bundled suites, and
+asserts that a known regression *does* fail the build — a gate nobody has
+verified is a gate you shouldn't trust. The `eval` job runs `regressa doctor`
+first, so a broken integration costs one cheap call instead of a whole suite.
+
+---
+
+## Verifying and tuning
+
+Two commands exist because two things can't be checked offline.
+
+**`regressa doctor`** makes a handful of tiny calls to confirm the integration
+actually works: requests accepted, responses parsed, usage populated, cost
+non-zero, the streaming branch, and the judge's structured output. One check is
+free and the most valuable — it sends `temperature` to a model the capability
+table says rejects it, and *fails if the API accepts it*, which would mean
+Regressa is refusing valid target configurations for no reason.
+
+```bash
+regressa doctor                          # cheapest model, ~$0.001
+regressa doctor --model claude-sonnet-5  # also exercises the effort parameter
+```
+
+**`regressa calibrate`** sizes `--tolerance` from runs you already have, so it
+costs nothing. It separates two problems that look alike:
+
+- **Score jitter** — the same case scoring 0.82 then 0.79. A tolerance absorbs it.
+- **Flapping** — the same case passing then failing. No tolerance fixes this,
+  because pass/fail isn't a threshold on the score. Flapping cases are excluded
+  from the recommendation and reported separately: widening the gate to cover one
+  would mask real regressions everywhere else.
+
+```bash
+regressa calibrate --suite support-assistant
+```
+
+For a meaningful number the runs must be real and made with `--no-cache` —
+cached responses are byte-identical by construction, so they measure nothing.
+
 ---
 
 ## CLI reference
@@ -330,6 +377,8 @@ with no external assets, so it attaches to a build cleanly.
 | `regressa trend` | Score movement across runs. |
 | `regressa show [RUN]` | Print a stored run. |
 | `regressa report [RUN]` | Write an HTML report. |
+| `regressa doctor` | Verify the live Anthropic integration. Needs a key; costs a fraction of a cent. |
+| `regressa calibrate` | Measure run-to-run jitter from history and recommend a `--tolerance`. Free. |
 | `regressa models` | Known models: pricing, limits, sampling support. |
 | `regressa cache-clear` | Drop cached responses. |
 
