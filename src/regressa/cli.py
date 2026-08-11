@@ -266,7 +266,7 @@ def compare(
         help="Exit 1 if the candidate fails any case the baseline passes.",
     ),
 ) -> None:
-    """A/B two targets within one run — e.g. two versions of a system prompt.
+    """A/B two targets within one run, e.g. two versions of a system prompt.
 
     Distinct from `diff`, which compares one target across two runs. Here both
     targets saw the same inputs in the same run, so model drift cancels out.

@@ -54,6 +54,13 @@ regressa trend --suite offline-demo
 regressa report latest -o report.html
 ```
 
+`suites/support-assistant.yaml` is the realistic worked example: a customer
+support prompt with explicit rules for refunds, escalation, tone and format,
+carrying two versions of that prompt as two targets. The rewrite in
+`v2-candidate` is a plausible improvement that quietly drops an exact phrase the
+ticket router depends on — which is the whole reason this tool exists. It calls
+the real API, so it needs a key.
+
 Step 3 prints exactly what broke and why:
 
 ```
@@ -129,17 +136,40 @@ the file. Because a diff between two differently-parameterised runs would
 otherwise look like an unexplained regression, overrides are recorded in the run
 label automatically when you don't pass `--label`.
 
-### One target, changing behaviour
+### Two comparisons, two commands
 
-Regressions are keyed on the `(case, target)` pair. Comparing two *different*
-target ids therefore gives you `added` / `removed` rows, not regressions — which
-is correct, but worth knowing when you design a suite. Keep the target id stable
-and change what sits underneath it; that's what makes the comparison meaningful.
+Regressa answers two different questions, and it matters which one you're asking:
 
-Use multiple targets for **side-by-side comparison in a single run** (does Opus 5
-beat Sonnet 5 on my cases today?) and the baseline for **change over time** (did
-today's prompt edit break what worked yesterday?). They answer different
-questions.
+| Question | Command | Shape |
+|---|---|---|
+| Did today break what worked yesterday? | `regressa diff` | One target, two runs |
+| Is version B better than version A? | `regressa compare` | Two targets, one run |
+
+`diff` is keyed on the `(case, target)` pair, so comparing two *different* target
+ids across runs gives you `added` / `removed` rows rather than regressions. That
+is correct — they're different things — but it's not the A/B you wanted. For
+that, put both versions in one suite as two targets and use `compare`: both saw
+the same inputs at the same moment, so model drift and flake cancel out.
+
+```bash
+regressa run suites/support-assistant.yaml
+regressa compare v1-live v2-candidate --fail-if-worse
+```
+
+```
+| verdict | case                     | v1-live | v2-candidate | score        | detail                    |
+| a_only  | escalate-security-breach |    +    |      x       | 1.00 -> 0.00 | v2-candidate failed -     |
+|         |                          |         |              |              | exact escalation phrase:  |
+|         |                          |         |              |              | missing ['escalating to   |
+|         |                          |         |              |              | a specialist']            |
+| b_only  | tone-under-pressure      |    x    |      +       | 0.00 -> 1.00 | v1-live failed - no       |
+|         |                          |         |              |              | filler apology            |
+v2-candidate fails 2 case(s) that v1-live passes. Not safe to promote over v1-live as-is.
+```
+
+`--fail-if-worse` exits 1 when the candidate fails anything the baseline passes,
+which is the gate you want in a PR that edits a prompt. Without it the command is
+informational and exits 0.
 
 ### Assertions
 

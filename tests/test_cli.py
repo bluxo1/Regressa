@@ -189,6 +189,15 @@ targets:
       by_case:
         escalate: "handing you to a specialist now"
         tone: "That is frustrating and I am fixing it now."
+  # Fails everything, so comparisons against it are asymmetric and can prove
+  # that direction is respected.
+  - id: v0-broken
+    provider: mock
+    model: mock-1
+    options:
+      by_case:
+        escalate: "have you tried turning it off and on again"
+        tone: "We sincerely apologize for any inconvenience."
 cases:
   - id: escalate
     prompt: "we were breached"
@@ -235,14 +244,33 @@ def test_compare_gates_promotion_with_fail_if_worse(tmp_path):
     assert "Not safe to promote" in result.output
 
 
-def test_compare_the_other_way_round_is_not_a_regression(tmp_path):
-    # v1 vs v2 reversed: v1 "breaks" tone, so direction matters and is respected.
+def test_compare_is_directional(tmp_path):
+    """A/B is not symmetric: which target is the baseline changes the verdict."""
+    _, db = _ab_run(tmp_path)
+
+    # v0 fails everything, so promoting it over v1 breaks cases v1 passed.
+    worse = runner.invoke(
+        app, ["compare", "v1-live", "v0-broken", "latest", "--db", db, "--fail-if-worse"]
+    )
+    assert worse.exit_code == 1
+
+    # Reversed, v1 breaks nothing v0 passed (v0 passed nothing), so it is safe.
+    better = runner.invoke(
+        app, ["compare", "v0-broken", "v1-live", "latest", "--db", db, "--fail-if-worse"]
+    )
+    assert better.exit_code == 0
+    assert "strict improvement" in better.output
+
+
+def test_compare_counts_both_directions_when_each_breaks_the_other(tmp_path):
+    # v1 and v2 each pass one case the other fails, so neither is promotable.
     _, db = _ab_run(tmp_path)
     result = runner.invoke(
         app,
         ["compare", "v2-candidate", "v1-live", "latest", "--db", db, "--fail-if-worse"],
     )
-    assert result.exit_code == 1  # symmetric here: each breaks one of the other's
+    assert result.exit_code == 1
+    assert "a_only" in result.output and "b_only" in result.output
 
 
 def test_compare_with_an_unknown_target_is_a_usage_error(tmp_path):
