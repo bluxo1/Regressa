@@ -202,7 +202,7 @@ regressa compare v1-live v2-candidate --html ab.html --json ab.json --fail-if-wo
 | Type | Checks |
 |---|---|
 | `llm_judge` | Grades against a `rubric` with a grader model; `threshold` sets the pass bar. Uses structured outputs, so the verdict is parsed from schema-constrained JSON rather than scraped from prose. |
-| `similarity` | Embedding cosine similarity against a `reference`. Needs the `similarity` extra. |
+| `similarity` | Embedding cosine similarity against a `reference`. Needs the `similarity` extra. **Measures topic, not truth** — "refunds within 30 days" and "we never offer refunds" score alike, so don't use it to assert policy. Use `contains` or `llm_judge` for that. |
 
 Every assertion takes an optional `label` (shown in reports) and a `weight`
 (default 1). A case **passes** only if every assertion passes; its **score** is
@@ -390,11 +390,17 @@ provider means one class with a `complete()` method, registered in
 ## Tests
 
 ```bash
-pytest
+pytest                  # everything installed
+pytest -m "not slow"    # skip the tests that need a local embedding model
 ```
 
 Everything runs offline against the mock provider and stubbed clients — no API
 key, no network, no cost.
+
+Tests marked `slow` exercise the `similarity` assertion against a real
+`sentence-transformers` model. They **skip automatically** when the extra isn't
+installed, so a plain `pytest` is green either way; install
+`pip install -e '.[similarity]'` to actually run them.
 
 ## License
 

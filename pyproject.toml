@@ -49,6 +49,11 @@ packages = ["src/regressa"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+markers = [
+  # Tests needing the `similarity` extra and a real embedding model. They skip
+  # automatically when it isn't installed; `-m 'not slow'` skips them anyway.
+  "slow: requires a local embedding model (the `similarity` extra)",
+]
 
 [tool.ruff]
 line-length = 100
