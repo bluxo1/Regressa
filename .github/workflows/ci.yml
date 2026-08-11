@@ -1,0 +1,155 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  # A new push supersedes an in-flight run on the same ref.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # The gate on every push and PR. No API key, no model downloads, no cost.
+  test:
+    name: tests (offline)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install
+        run: pip install -e ".[dev]"
+
+      # `-m "not slow"` skips the embedding-model tests. They'd pull torch
+      # (multi-GB) on every push for a handful of assertions; the weekly job
+      # below covers them instead.
+      - name: Tests
+        run: pytest -m "not slow" --cov=regressa --cov-report=term-missing
+
+      # Suites are data, and a broken one should fail here rather than at 3am.
+      # `validate` also catches targets configured in ways the model would 400 on.
+      - name: Validate bundled suites
+        run: regressa validate suites/
+
+      - name: Offline end-to-end run
+        run: regressa run suites/offline-demo.yaml --set-baseline
+
+      - name: Regression detection actually fails the build
+        run: |
+          # Degrade one behaviour; the run must exit 1 and name the regression.
+          if regressa run suites/offline-demo.yaml \
+               --var greeting_reply="As an AI language model, I cannot assist."; then
+            echo "::error::a known regression did not fail the build"
+            exit 1
+          fi
+          echo "regression correctly detected"
+
+  # The embedding-model tests. Weekly rather than per-push because installing
+  # torch is slow and they only cover the optional `similarity` assertion.
+  similarity:
+    name: tests (similarity extra)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install with the similarity extra
+        run: pip install -e ".[dev,similarity]"
+      - name: Slow tests
+        run: pytest -m slow
+
+  # The real eval, gated on a key. Runs on demand and nightly rather than per-PR
+  # so a prompt suite costs money only when you ask for it.
+  #
+  # To enable: add ANTHROPIC_API_KEY to the repository secrets.
+  eval:
+    name: prompt eval (live API)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: pip install -e .
+
+      - name: Fail early if no key is configured
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          if [ -z "$ANTHROPIC_API_KEY" ]; then
+            echo "::error::ANTHROPIC_API_KEY is not set in repository secrets"
+            exit 1
+          fi
+
+      # One cheap call that verifies the Anthropic integration before spending
+      # a whole suite's worth of tokens on it.
+      - name: Check the API integration
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: regressa doctor
+
+      # Restore history so regressions are measured against the stored baseline
+      # rather than starting from scratch every night.
+      - name: Restore run history
+        uses: actions/cache@v4
+        with:
+          path: .regressa
+          key: regressa-history-${{ github.ref_name }}-${{ github.run_id }}
+          restore-keys: |
+            regressa-history-${{ github.ref_name }}-
+            regressa-history-
+
+      - name: Run the suite
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          regressa run suites/support-assistant.yaml \
+            --html eval-report.html \
+            --json eval-results.json \
+            --label "ci-${GITHUB_RUN_NUMBER}"
+
+      # A/B the two prompt versions. `|| true` because the bundled suite ships a
+      # candidate that is deliberately worse — in your own repo, drop it so a bad
+      # candidate fails the job.
+      - name: Compare prompt versions
+        if: always()
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          regressa compare v1-live v2-candidate \
+            --html ab-report.html --json ab-results.json --fail-if-worse || true
+
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: regressa-reports
+          path: |
+            eval-report.html
+            eval-results.json
+            ab-report.html
+            ab-results.json
+          if-no-files-found: warn
