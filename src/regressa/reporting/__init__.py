@@ -8,7 +8,13 @@ from regressa.reporting.console import (
     print_summary,
     print_trend,
 )
-from regressa.reporting.html import render_report, write_json, write_report
+from regressa.reporting.html import (
+    comparison_to_dict,
+    render_report,
+    write_comparison_json,
+    write_json,
+    write_report,
+)
 
 __all__ = [
     "print_run",
@@ -20,4 +26,6 @@ __all__ = [
     "render_report",
     "write_report",
     "write_json",
+    "write_comparison_json",
+    "comparison_to_dict",
 ]

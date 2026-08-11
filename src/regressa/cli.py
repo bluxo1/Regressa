@@ -265,6 +265,12 @@ def compare(
         "--fail-if-worse",
         help="Exit 1 if the candidate fails any case the baseline passes.",
     ),
+    html_out: Optional[str] = typer.Option(
+        None, "--html", help="Write the A/B as a self-contained HTML report."
+    ),
+    json_out: Optional[str] = typer.Option(
+        None, "--json", help="Write the A/B as JSON for CI to gate on."
+    ),
 ) -> None:
     """A/B two targets within one run, e.g. two versions of a system prompt.
 
@@ -278,6 +284,15 @@ def compare(
         except ValueError as exc:
             _fail(str(exc))
         reporting.print_comparison(result, show_ties=show_ties)
+
+        if html_out:
+            written = reporting.write_report(
+                html_out, run, trend=store.trend(run.suite), comparison=result
+            )
+            console.print(f"HTML report written to {written}")
+        if json_out:
+            written = reporting.write_comparison_json(json_out, result)
+            console.print(f"JSON comparison written to {written}")
 
     worse = result.b_is_worse
     raise typer.Exit(EXIT_FAILED if (worse and fail_if_worse) else EXIT_OK)

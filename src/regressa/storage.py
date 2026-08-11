@@ -7,14 +7,16 @@ service to run, and the file is easy to commit as a CI artifact or throw away.
 
 from __future__ import annotations
 
+import functools
 import json
 import os
 import sqlite3
 import subprocess
+import threading
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Callable, Iterator
 
 from regressa.results import CaseResult, RunSummary
 
@@ -95,13 +97,38 @@ def git_sha() -> str | None:
     return sha or None
 
 
+def _synchronized(method: Callable[..., Any]) -> Callable[..., Any]:
+    """Serialise a Store method against the shared connection.
+
+    The runner calls `cache_get` / `cache_put` from worker threads while a run is
+    in flight. A single sqlite3 connection tolerates use from several threads,
+    but concurrent `with self.conn:` blocks interleave their implicit
+    transactions and the driver raises `InterfaceError: bad parameter or other
+    API misuse`. One lock around every connection touch removes the interleaving;
+    contention is irrelevant next to the API latency these calls sit behind.
+    """
+
+    @functools.wraps(method)
+    def wrapper(self: Store, *args: Any, **kwargs: Any) -> Any:
+        with self._lock:
+            return method(self, *args, **kwargs)
+
+    return wrapper
+
+
 class Store:
-    """Thin wrapper over the SQLite file. Usable as a context manager."""
+    """Thin wrapper over the SQLite file. Usable as a context manager.
+
+    Safe to share across threads: every method that touches the connection is
+    serialised by `_lock`.
+    """
 
     def __init__(self, path: str | Path | None = None) -> None:
         self.path = Path(path or os.environ.get("REGRESSA_DB") or DEFAULT_DB)
         if str(self.path) != ":memory:":
             self.path.parent.mkdir(parents=True, exist_ok=True)
+        # Reentrant: resolve_run -> get_run -> _hydrate all re-acquire.
+        self._lock = threading.RLock()
         self.conn = sqlite3.connect(str(self.path), check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA foreign_keys = ON")
@@ -114,6 +141,7 @@ class Store:
     def __exit__(self, *_exc: object) -> None:
         self.close()
 
+    @_synchronized
     def close(self) -> None:
         self.conn.close()
 
@@ -121,6 +149,7 @@ class Store:
     # Runs
     # ------------------------------------------------------------------ #
 
+    @_synchronized
     def save_run(self, run: RunSummary) -> None:
         run.recompute()
         with self.conn:
@@ -178,12 +207,14 @@ class Store:
                 ],
             )
 
+    @_synchronized
     def get_run(self, run_id: str) -> RunSummary | None:
         row = self.conn.execute("SELECT * FROM runs WHERE id = ?", (run_id,)).fetchone()
         if row is None:
             return None
         return self._hydrate(row)
 
+    @_synchronized
     def latest_run(self, suite: str | None = None) -> RunSummary | None:
         if suite:
             row = self.conn.execute(
@@ -196,6 +227,7 @@ class Store:
             ).fetchone()
         return self._hydrate(row) if row else None
 
+    @_synchronized
     def resolve_run(self, ref: str, suite: str | None = None) -> RunSummary | None:
         """Resolve a run reference.
 
@@ -215,6 +247,7 @@ class Store:
             return runs[offset] if len(runs) > offset else None
         return self.get_run(ref)
 
+    @_synchronized
     def list_runs(self, suite: str | None = None, limit: int = 20) -> list[RunSummary]:
         if suite:
             rows = self.conn.execute(
@@ -227,15 +260,18 @@ class Store:
             ).fetchall()
         return [self._hydrate(row, with_results=False) for row in rows]
 
+    @_synchronized
     def delete_run(self, run_id: str) -> bool:
         with self.conn:
             cur = self.conn.execute("DELETE FROM runs WHERE id = ?", (run_id,))
         return cur.rowcount > 0
 
+    @_synchronized
     def suites(self) -> list[str]:
         rows = self.conn.execute("SELECT DISTINCT suite FROM runs ORDER BY suite").fetchall()
         return [row["suite"] for row in rows]
 
+    @_synchronized
     def _hydrate(self, row: sqlite3.Row, with_results: bool = True) -> RunSummary:
         run = RunSummary(
             run_id=row["id"],
@@ -289,6 +325,7 @@ class Store:
     # Baselines
     # ------------------------------------------------------------------ #
 
+    @_synchronized
     def set_baseline(self, suite: str, run_id: str) -> None:
         with self.conn:
             self.conn.execute(
@@ -296,12 +333,14 @@ class Store:
                 (suite, run_id, datetime.now(timezone.utc).isoformat()),
             )
 
+    @_synchronized
     def get_baseline(self, suite: str) -> RunSummary | None:
         row = self.conn.execute(
             "SELECT run_id FROM baselines WHERE suite = ?", (suite,)
         ).fetchone()
         return self.get_run(row["run_id"]) if row else None
 
+    @_synchronized
     def clear_baseline(self, suite: str) -> bool:
         with self.conn:
             cur = self.conn.execute("DELETE FROM baselines WHERE suite = ?", (suite,))
@@ -311,10 +350,12 @@ class Store:
     # Response cache
     # ------------------------------------------------------------------ #
 
+    @_synchronized
     def cache_get(self, key: str) -> dict[str, Any] | None:
         row = self.conn.execute("SELECT response FROM cache WHERE key = ?", (key,)).fetchone()
         return json.loads(row["response"]) if row else None
 
+    @_synchronized
     def cache_put(self, key: str, response: dict[str, Any]) -> None:
         with self.conn:
             self.conn.execute(
@@ -322,6 +363,7 @@ class Store:
                 (key, json.dumps(response), datetime.now(timezone.utc).isoformat()),
             )
 
+    @_synchronized
     def cache_clear(self) -> int:
         with self.conn:
             cur = self.conn.execute("DELETE FROM cache")
@@ -331,6 +373,7 @@ class Store:
     # Trends
     # ------------------------------------------------------------------ #
 
+    @_synchronized
     def trend(self, suite: str, limit: int = 30) -> list[dict[str, Any]]:
         """Oldest-first score/pass-rate history, for charts and `regressa trend`."""
         rows = self.conn.execute(
@@ -355,6 +398,7 @@ class Store:
             for row in reversed(rows)
         ]
 
+    @_synchronized
     def case_history(self, suite: str, case_id: str, target_id: str, limit: int = 30
                      ) -> list[dict[str, Any]]:
         """Per-case history — useful for spotting a flaky case vs a real regression."""

@@ -124,6 +124,81 @@ def test_no_cache_option_forces_a_fresh_call(tmp_path):
     store.close()
 
 
+def test_cache_survives_concurrent_writes_from_worker_threads(tmp_path):
+    """Regression test for a crash that only appeared on real (non-mock) runs.
+
+    The runner calls cache_get/cache_put from its thread pool. With an unguarded
+    connection, concurrent `with self.conn:` blocks interleaved their implicit
+    transactions and sqlite3 raised `InterfaceError: bad parameter or other API
+    misuse` — so every real run at the default concurrency of 4 with caching on
+    would die partway through. Mock targets skip the cache entirely, which is why
+    no offline test caught it.
+    """
+    from regressa.config import Suite
+    from regressa.providers.base import CompletionResponse
+
+    class StubProvider:
+        name = "anthropic"
+
+        def complete(self, request):
+            return CompletionResponse(text="ok", input_tokens=5, output_tokens=5)
+
+    suite = Suite.model_validate(
+        {
+            "name": "concurrency",
+            "targets": [{"id": "t", "provider": "anthropic", "model": "claude-opus-5"}],
+            "cases": [
+                {
+                    "id": f"c{i}",
+                    "prompt": f"prompt {i}",
+                    "assertions": [{"type": "contains", "value": "ok"}],
+                }
+                for i in range(40)
+            ],
+        }
+    )
+
+    store = Store(tmp_path / "conc.db")
+    runner = Runner(store)
+    runner._providers["anthropic"] = StubProvider()
+
+    first = runner.run(suite, RunOptions(concurrency=16))
+    assert first.errors == 0, [r.error for r in first.results if r.error][:3]
+    assert first.passed == 40
+
+    # Every response should now be cached, and re-running must read all 40 back.
+    assert store.conn.execute("SELECT COUNT(*) FROM cache").fetchone()[0] == 40
+    second = runner.run(suite, RunOptions(concurrency=16))
+    assert second.errors == 0
+    assert sum(1 for r in second.results if r.cached) == 40
+    store.close()
+
+
+def test_store_methods_are_safe_to_call_from_many_threads(tmp_path):
+    """Reads and writes interleaved across threads must not corrupt or raise."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    store = Store(tmp_path / "threads.db")
+    errors: list[Exception] = []
+
+    def hammer(n: int) -> None:
+        try:
+            for i in range(20):
+                store.cache_put(f"k{n}-{i}", {"text": "x", "input_tokens": i})
+                store.cache_get(f"k{n}-{i}")
+                store.suites()
+                store.list_runs(limit=5)
+        except Exception as exc:  # noqa: BLE001
+            errors.append(exc)
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        list(pool.map(hammer, range(8)))
+
+    assert errors == [], errors
+    assert store.conn.execute("SELECT COUNT(*) FROM cache").fetchone()[0] == 160
+    store.close()
+
+
 def test_deleting_a_run_removes_its_results(mock_suite, store):
     run = Runner(store).run(mock_suite)
     assert store.delete_run(run.run_id) is True

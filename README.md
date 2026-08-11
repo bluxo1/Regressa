@@ -171,6 +171,14 @@ v2-candidate fails 2 case(s) that v1-live passes. Not safe to promote over v1-li
 which is the gate you want in a PR that edits a prompt. Without it the command is
 informational and exits 0.
 
+For CI, `--html` writes the A/B as a single self-contained file you can attach to
+a build, and `--json` writes a machine-readable form whose `b_is_worse` field is
+the one flag to gate on:
+
+```bash
+regressa compare v1-live v2-candidate --html ab.html --json ab.json --fail-if-worse
+```
+
 ### Assertions
 
 **Deterministic** — free, fast, no flake. These carry the load:
@@ -251,6 +259,15 @@ assertion rather than a real regression.
 table (`regressa models`), and includes grader-model spend from `llm_judge`
 assertions so nothing hides off-ledger.
 
+Promotional pricing is **date-aware**. Sonnet 5's introductory rate ($2/$10 per
+MTok versus the $3/$15 list rate) is modelled with an explicit end date, so costs
+are computed at the rate actually in force rather than at whichever number
+happened to be hardcoded. `regressa models` shows `promo/list` side by side and
+warns how many days remain, because a promotion ending shifts every cost figure
+with no prompt change — enough to trip a `cost` assertion overnight. Costs are
+stored on the run when it happens, so historical runs keep the price they were
+actually charged.
+
 **Caching** is on by default. Responses are keyed on a hash of everything that
 affects output — model, prompt, system, max_tokens, effort, thinking, stop
 sequences — so re-running a suite after editing one case only pays for that
@@ -307,7 +324,7 @@ with no external assets, so it attaches to a build cleanly.
 | `regressa run [PATHS]` | Run suites. `--target` `--tag` `--case` filter; `--var k=v` overrides variables; `-j` sets concurrency; `--dry-run` prints the plan. |
 | `regressa validate [PATHS]` | Schema and capability check, no model calls. |
 | `regressa diff BEFORE [AFTER]` | Compare one target across two runs. Accepts a run id, `baseline`, `latest`, `latest~N`. |
-| `regressa compare A B [RUN]` | A/B two targets inside one run. `--fail-if-worse` gates promotion. |
+| `regressa compare A B [RUN]` | A/B two targets inside one run. `--fail-if-worse` gates promotion; `--html` / `--json` write artifacts. |
 | `regressa baseline set/show/clear` | Manage the comparison baseline. |
 | `regressa history` | List recorded runs. |
 | `regressa trend` | Score movement across runs. |

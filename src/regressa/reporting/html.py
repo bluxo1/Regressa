@@ -195,6 +195,90 @@ def _diff_section(diff: RunDiff) -> str:
     return "".join(out)
 
 
+_VERDICT_CLASS = {
+    Verdict.A_ONLY: "fail",
+    Verdict.B_ONLY: "pass",
+    Verdict.BOTH_FAIL: "warn",
+    Verdict.BOTH_PASS: "pass",
+    Verdict.A_MISSING: "warn",
+    Verdict.B_MISSING: "warn",
+}
+
+
+def _comparison_section(cmp: TargetComparison) -> str:
+    e = html.escape
+    a, b = cmp.target_a, cmp.target_b
+    out = [f"<h2>A/B: {e(a)} vs {e(b)}</h2>"]
+
+    if cmp.b_is_worse:
+        verdict = (
+            f'<div class="note"><strong>{e(b)} fails {len(cmp.a_wins)} case(s) that '
+            f"{e(a)} passes.</strong> Not safe to promote over {e(a)} as-is.</div>"
+        )
+    elif cmp.b_wins:
+        verdict = (
+            f'<p>{e(b)} is a strict improvement over {e(a)}: it fixes '
+            f"{len(cmp.b_wins)} case(s) and breaks none.</p>"
+        )
+    else:
+        verdict = f"<p>No pass/fail difference between {e(a)} and {e(b)}.</p>"
+    out.append(verdict)
+
+    ties = len(cmp.by_verdict(Verdict.BOTH_PASS))
+    cards = [
+        (f"only {b} passes", str(len(cmp.b_wins))),
+        (f"only {a} passes", str(len(cmp.a_wins))),
+        ("both pass", str(ties)),
+        (f"{a} mean score", f"{cmp.a_score:.3f}"),
+        (f"{b} mean score", f"{cmp.b_score:.3f}"),
+    ]
+    out.append(
+        '<div class="cards">'
+        + "".join(
+            f'<div class="card"><div class="k">{e(k)}</div><div class="v">{e(v)}</div></div>'
+            for k, v in cards
+        )
+        + "</div>"
+    )
+
+    interesting = [d for d in cmp.deltas if d.verdict is not Verdict.BOTH_PASS]
+    if not interesting:
+        return "".join(out)
+
+    rows = []
+    for d in interesting:
+        cls = _VERDICT_CLASS[d.verdict]
+        a_score = "—" if d.a_score is None else f"{d.a_score:.2f}"
+        b_score = "—" if d.b_score is None else f"{d.b_score:.2f}"
+        rows.append(
+            "<tr>"
+            f'<td><span class="pill {cls}">{e(d.verdict.value)}</span></td>'
+            f"<td><code>{e(d.case_id)}</code></td>"
+            f"<td>{_pill(d.a_passed)}</td>"
+            f"<td>{_pill(d.b_passed)}</td>"
+            f'<td class="num">{a_score} → {b_score}</td>'
+            f"<td>{e(d.detail)}</td>"
+            "</tr>"
+        )
+
+    out.append(
+        '<div class="scroll"><table><thead><tr><th>verdict</th><th>case</th>'
+        f"<th>{e(a)}</th><th>{e(b)}</th><th>score</th><th>detail</th>"
+        "</tr></thead><tbody>" + "".join(rows) + "</tbody></table></div>"
+    )
+    return "".join(out)
+
+
+def _pill(passed: bool | None) -> str:
+    if passed is None:
+        return '<span class="pill warn">n/a</span>'
+    return (
+        '<span class="pill pass">PASS</span>'
+        if passed
+        else '<span class="pill fail">FAIL</span>'
+    )
+
+
 def _trend_svg(points: list[dict[str, Any]], width: int = 900, height: int = 220) -> str:
     """Inline SVG line chart of mean score over runs.
 
@@ -257,10 +341,14 @@ def write_report(
     run: RunSummary,
     trend: list[dict[str, Any]] | None = None,
     diff: RunDiff | None = None,
+    comparison: TargetComparison | None = None,
 ) -> Path:
     out = Path(path)
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(render_report(run, trend=trend, diff=diff), encoding="utf-8")
+    out.write_text(
+        render_report(run, trend=trend, diff=diff, comparison=comparison),
+        encoding="utf-8",
+    )
     return out
 
 
@@ -270,4 +358,42 @@ def write_json(path: str | Path, run: RunSummary) -> Path:
     out.write_text(
         json.dumps(run.model_dump(mode="json"), indent=2), encoding="utf-8"
     )
+    return out
+
+
+def comparison_to_dict(cmp: TargetComparison) -> dict[str, Any]:
+    """Machine-readable form of an A/B, for CI to gate on without parsing text."""
+    return {
+        "run_id": cmp.run_id,
+        "target_a": cmp.target_a,
+        "target_b": cmp.target_b,
+        "a_mean_score": round(cmp.a_score, 6),
+        "b_mean_score": round(cmp.b_score, 6),
+        "b_is_worse": cmp.b_is_worse,
+        "counts": {
+            "only_a_passes": len(cmp.a_wins),
+            "only_b_passes": len(cmp.b_wins),
+            "both_pass": len(cmp.by_verdict(Verdict.BOTH_PASS)),
+            "both_fail": len(cmp.by_verdict(Verdict.BOTH_FAIL)),
+        },
+        "cases": [
+            {
+                "case_id": d.case_id,
+                "verdict": d.verdict.value,
+                "a_passed": d.a_passed,
+                "b_passed": d.b_passed,
+                "a_score": d.a_score,
+                "b_score": d.b_score,
+                "score_delta": d.score_delta,
+                "detail": d.detail,
+            }
+            for d in cmp.deltas
+        ],
+    }
+
+
+def write_comparison_json(path: str | Path, cmp: TargetComparison) -> Path:
+    out = Path(path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(comparison_to_dict(cmp), indent=2), encoding="utf-8")
     return out

@@ -273,6 +273,42 @@ def test_compare_counts_both_directions_when_each_breaks_the_other(tmp_path):
     assert "a_only" in result.output and "b_only" in result.output
 
 
+def test_compare_writes_a_self_contained_html_report(tmp_path):
+    _, db = _ab_run(tmp_path)
+    out = tmp_path / "ab.html"
+    result = runner.invoke(
+        app, ["compare", "v1-live", "v2-candidate", "latest", "--db", db, "--html", str(out)]
+    )
+    assert result.exit_code == 0
+    html = out.read_text(encoding="utf-8")
+    assert "A/B: v1-live vs v2-candidate" in html
+    assert "Not safe to promote" in html
+    assert "exact escalation phrase" in html
+    # Still self-contained: no external assets.
+    assert "http://" not in html and "https://" not in html
+
+
+def test_compare_writes_machine_readable_json(tmp_path):
+    import json
+
+    _, db = _ab_run(tmp_path)
+    out = tmp_path / "ab.json"
+    result = runner.invoke(
+        app, ["compare", "v1-live", "v2-candidate", "latest", "--db", db, "--json", str(out)]
+    )
+    assert result.exit_code == 0
+
+    data = json.loads(out.read_text(encoding="utf-8"))
+    assert data["target_a"] == "v1-live"
+    assert data["target_b"] == "v2-candidate"
+    # The field CI actually gates on.
+    assert data["b_is_worse"] is True
+    assert data["counts"]["only_a_passes"] == 1
+    assert data["counts"]["only_b_passes"] == 1
+    verdicts = {c["case_id"]: c["verdict"] for c in data["cases"]}
+    assert verdicts == {"escalate": "a_only", "tone": "b_only"}
+
+
 def test_compare_with_an_unknown_target_is_a_usage_error(tmp_path):
     _, db = _ab_run(tmp_path)
     result = runner.invoke(
