@@ -16,3 +16,4 @@ htmlcov/
 regressa.db
 regressa-report.html
 *.regressa.json
+.env.example

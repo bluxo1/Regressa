@@ -1,0 +1,45 @@
+<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Regressa — offline-demo</title><style>
+:root {
+  --bg: #ffffff; --fg: #16181d; --muted: #6b7280; --line: #e5e7eb;
+  --pass: #15803d; --fail: #b91c1c; --warn: #b45309; --accent: #1d4ed8;
+  --card: #f9fafb;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f1115; --fg: #e6e8eb; --muted: #9aa1ab; --line: #262b33;
+    --pass: #4ade80; --fail: #f87171; --warn: #fbbf24; --accent: #7aa2ff;
+    --card: #161a21;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; padding: 2rem 1.25rem; background: var(--bg); color: var(--fg);
+  font: 15px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+main { max-width: 1100px; margin: 0 auto; }
+h1 { font-size: 1.5rem; margin: 0 0 .25rem; }
+h2 { font-size: 1.1rem; margin: 2.25rem 0 .75rem; }
+.sub { color: var(--muted); margin: 0 0 1.5rem; font-size: .9rem; }
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: .75rem; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: .85rem 1rem; }
+.card .k { color: var(--muted); font-size: .75rem; text-transform: uppercase; letter-spacing: .04em; }
+.card .v { font-size: 1.5rem; font-weight: 650; margin-top: .15rem; }
+.scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; }
+table { border-collapse: collapse; width: 100%; font-size: .875rem; min-width: 720px; }
+th, td { text-align: left; padding: .55rem .7rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { background: var(--card); font-weight: 600; position: sticky; top: 0; }
+tr:last-child td { border-bottom: none; }
+td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pill { display: inline-block; padding: .1rem .5rem; border-radius: 999px; font-size: .72rem; font-weight: 650; }
+.pass { background: color-mix(in srgb, var(--pass) 18%, transparent); color: var(--pass); }
+.fail { background: color-mix(in srgb, var(--fail) 18%, transparent); color: var(--fail); }
+.warn { background: color-mix(in srgb, var(--warn) 20%, transparent); color: var(--warn); }
+pre { margin: .4rem 0 0; padding: .6rem .7rem; background: var(--card); border: 1px solid var(--line);
+      border-radius: 8px; white-space: pre-wrap; word-break: break-word; font-size: .8rem; max-height: 18rem;
+      overflow: auto; }
+.note { background: color-mix(in srgb, var(--warn) 12%, transparent); border-left: 3px solid var(--warn);
+        padding: .6rem .8rem; border-radius: 6px; margin: 1rem 0; font-size: .875rem; }
+.assert { color: var(--muted); font-size: .8rem; }
+footer { color: var(--muted); font-size: .78rem; margin-top: 3rem; }
+svg { max-width: 100%; height: auto; display: block; }
+</style></head><body><main><h1>offline-demo</h1><p class="sub">run <code>20260816T180515-4f1f10</code> · 2026-08-16 18:05 UTC · git <code>a6d5e4f</code> · label <code>tightened-system-prompt</code> · suite hash <code>76a59460bf4219b1</code></p><div class="cards"><div class="card"><div class="k">pass rate</div><div class="v">67%</div></div><div class="card"><div class="k">passed</div><div class="v">2/3</div></div><div class="card"><div class="k">mean score</div><div class="v">0.667</div></div><div class="card"><div class="k">cost</div><div class="v">$0.0000</div></div><div class="card"><div class="k">harness errors</div><div class="v">0</div></div></div><h2>Changes vs baseline</h2><div class="scroll"><table><thead><tr><th>change</th><th>case</th><th>target</th><th>score</th><th>detail</th></tr></thead><tbody><tr><td><span class="pill fail">regressed</span></td><td><code>greeting</code></td><td><code>agent</code></td><td class="num">1.00 → 0.00</td><td>names the product: missing [&#x27;Northwind Lamp&#x27;]; no AI boilerplate: found banned [&#x27;As an AI&#x27;, &#x27;I cannot assist&#x27;]</td></tr></tbody></table></div><h2>Score trend</h2><svg viewBox="0 0 900 220" role="img" aria-label="Mean score across the last 4 runs" style="color: var(--accent)"><line x1="44" y1="190.0" x2="888" y2="190.0" stroke="currentColor" stroke-opacity=".12"/><text x="36" y="194.0" text-anchor="end" font-size="10" fill="currentColor" opacity=".55">0.0</text><line x1="44" y1="102.0" x2="888" y2="102.0" stroke="currentColor" stroke-opacity=".12"/><text x="36" y="106.0" text-anchor="end" font-size="10" fill="currentColor" opacity=".55">0.5</text><line x1="44" y1="14.0" x2="888" y2="14.0" stroke="currentColor" stroke-opacity=".12"/><text x="36" y="18.0" text-anchor="end" font-size="10" fill="currentColor" opacity=".55">1.0</text><polygon points="44,190 44.0,14.0 325.3,43.3 606.7,14.0 888.0,72.7 888.0,190" fill="currentColor" fill-opacity=".10"/><polyline points="44.0,14.0 325.3,43.3 606.7,14.0 888.0,72.7" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="44.0" cy="14.0" r="3" fill="currentColor"><title>20260816T180511-93a2bf — score 1.000, 3/3 passed</title></circle><circle cx="325.3" cy="43.3" r="3" fill="currentColor"><title>20260816T180513-cb7b1b — score 0.833, 2/3 passed</title></circle><circle cx="606.7" cy="14.0" r="3" fill="currentColor"><title>20260816T180514-1eaaea — score 1.000, 3/3 passed</title></circle><circle cx="888.0" cy="72.7" r="3" fill="currentColor"><title>20260816T180515-4f1f10 — score 0.667, 2/3 passed</title></circle><text x="44" y="212" font-size="10" fill="currentColor" opacity=".55">2026-08-16</text><text x="888" y="212" text-anchor="end" font-size="10" fill="currentColor" opacity=".55">2026-08-16</text></svg><h2>Results</h2><div class="scroll"><table><thead><tr><th></th><th>case</th><th>target</th><th>score</th><th>latency</th><th>cost</th><th>assertions</th></tr></thead><tbody><tr><td><span class="pill fail">FAIL</span></td><td><code>greeting</code></td><td><code>agent</code></td><td class="num">0.00</td><td class="num">3ms</td><td class="num">$0.00000</td><td><div class="assert">✗ names the product — missing [&#x27;Northwind Lamp&#x27;]</div><div class="assert">✗ no AI boilerplate — found banned [&#x27;As an AI&#x27;, &#x27;I cannot assist&#x27;]</div><pre>As an AI language model, I cannot assist with that.</pre></td></tr><tr><td><span class="pill pass">PASS</span></td><td><code>json-shape</code></td><td><code>agent</code></td><td class="num">1.00</td><td class="num">4ms</td><td class="num">$0.00000</td><td><div class="assert">✓ json_valid — output is valid JSON</div><div class="assert">✓ classified as a status query — intent == &#x27;status&#x27;</div></td></tr><tr><td><span class="pill pass">PASS</span></td><td><code>word-budget</code></td><td><code>agent</code></td><td class="num">1.00</td><td class="num">4ms</td><td class="num">$0.00000</td><td><div class="assert">✓ contains — found &#x27;30 day&#x27;</div><div class="assert">✓ stays brief — 8 words</div></td></tr></tbody></table></div><footer>Generated by Regressa · 2026-08-16 23:35</footer></main></body></html>

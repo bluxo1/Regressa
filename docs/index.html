@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Regressa — prompt regression testing</title>
+<meta name="description" content="Run a fixed set of prompts against an LLM, check outputs against expected criteria, and flag regressions when prompts, models, or system instructions change.">
+<style>
+:root {
+  --bg: #ffffff; --fg: #16181d; --muted: #5b6472; --line: #e5e7eb;
+  --pass: #15803d; --fail: #b91c1c; --warn: #b45309; --accent: #1d4ed8;
+  --card: #f9fafb; --code-bg: #0f1115; --code-fg: #e6e8eb;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f1115; --fg: #e6e8eb; --muted: #9aa1ab; --line: #262b33;
+    --pass: #4ade80; --fail: #f87171; --warn: #fbbf24; --accent: #7aa2ff;
+    --card: #161a21; --code-bg: #0a0c10; --code-fg: #e6e8eb;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; padding: 0; background: var(--bg); color: var(--fg);
+  font: 16px/1.6 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+main { max-width: 860px; margin: 0 auto; padding: 4rem 1.25rem 6rem; }
+header { border-bottom: 1px solid var(--line); padding-bottom: 2rem; margin-bottom: 2.5rem; }
+h1 { font-size: 2.5rem; margin: 0 0 .5rem; letter-spacing: -.02em; }
+h2 { font-size: 1.35rem; margin: 3rem 0 .85rem; letter-spacing: -.01em; }
+h3 { font-size: 1rem; margin: 1.75rem 0 .5rem; }
+.tagline { font-size: 1.15rem; color: var(--muted); margin: 0 0 1.5rem; }
+p { margin: 0 0 1rem; }
+a { color: var(--accent); }
+code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .875em;
+       background: var(--card); border: 1px solid var(--line); border-radius: 4px; padding: .1em .35em; }
+pre { background: var(--code-bg); color: var(--code-fg); border-radius: 10px; padding: 1rem 1.1rem;
+      overflow-x: auto; font-size: .82rem; line-height: 1.55; margin: 0 0 1rem; }
+pre code { background: none; border: 0; padding: 0; font-size: inherit; color: inherit; }
+.cta { display: flex; gap: .6rem; flex-wrap: wrap; margin-top: 1.5rem; }
+.btn { display: inline-block; padding: .6rem 1.1rem; border-radius: 8px; text-decoration: none;
+       font-weight: 600; font-size: .9rem; border: 1px solid var(--line); color: var(--fg); }
+.btn.primary { background: var(--accent); color: #fff; border-color: transparent; }
+.note { background: color-mix(in srgb, var(--warn) 12%, transparent);
+        border-left: 3px solid var(--warn); padding: .8rem 1rem; border-radius: 6px;
+        margin: 1.5rem 0; font-size: .92rem; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: .9rem; margin: 1.25rem 0; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 1rem 1.1rem; }
+.card h3 { margin: 0 0 .35rem; font-size: .95rem; }
+.card p { margin: 0; font-size: .88rem; color: var(--muted); }
+.scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; margin-bottom: 1rem; }
+table { border-collapse: collapse; width: 100%; font-size: .875rem; min-width: 520px; }
+th, td { text-align: left; padding: .55rem .75rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { background: var(--card); font-weight: 600; }
+tr:last-child td { border-bottom: none; }
+.pass { color: var(--pass); font-weight: 600; }
+.fail { color: var(--fail); font-weight: 600; }
+footer { border-top: 1px solid var(--line); margin-top: 4rem; padding-top: 1.5rem;
+         color: var(--muted); font-size: .85rem; }
+.muted { color: var(--muted); }
+ul { margin: 0 0 1rem; padding-left: 1.25rem; }
+li { margin-bottom: .4rem; }
+</style>
+</head>
+<body>
+<main>
+
+<header>
+  <h1>Regressa</h1>
+  <p class="tagline">
+    Prompt evaluation and regression testing. Run a fixed set of prompts against an
+    LLM, check the outputs against expected criteria, and flag regressions when
+    prompts, models, or system instructions change.
+  </p>
+  <div class="cta">
+    <a class="btn primary" href="report.html">See a real report</a>
+    <a class="btn" href="https://github.com/your-org/regressa">Source</a>
+  </div>
+</header>
+
+<p>
+  Prompt changes have no compiler and no type system. You tweak a system
+  instruction to fix one behaviour, ship it, and silently break three others.
+  Regressa gives that workflow a test suite, a baseline, and a diff.
+</p>
+
+<pre><code># No API key and no cost — the mock provider exercises the whole harness.
+regressa run suites/offline-demo.yaml --set-baseline
+
+# Change a prompt, then re-run. Exits 1 so CI catches it.
+regressa run suites/offline-demo.yaml</code></pre>
+
+<h2>What a regression looks like</h2>
+
+<p>
+  This is the real output of the second command above. One case that used to pass
+  now fails, and the report names the assertion responsible:
+</p>
+
+<pre><code>| change    | case     | target | score        | detail
+| regressed | greeting | agent  | 1.00 -> 0.00 | names the product: missing
+|           |          |        |              | ['Northwind Lamp']; no AI
+|           |          |        |              | boilerplate: found banned
+|           |          |        |              | ['As an AI', 'I cannot assist']
+
+1 regression(s). Non-zero exit for CI.</code></pre>
+
+<h2>A suite is one YAML file</h2>
+
+<pre><code>targets:
+  - id: v1-live                    # the prompt in production
+    model: claude-sonnet-5
+    system: |
+      Refunds are available within 30 days of purchase.
+      For security breaches, your reply must contain the exact
+      phrase "escalating to a specialist".
+      Three sentences maximum.
+
+  - id: v2-candidate               # the rewrite you're considering
+    model: claude-sonnet-5
+    system: |
+      Refunds within 30 days. For breaches, hand off to a
+      specialist. Keep it short.
+
+cases:
+  - id: escalate-security-breach
+    prompt: "Someone downloaded our entire client folder."
+    assertions:
+      - type: contains             # a contract, not a preference:
+        value: "escalating to a specialist"   # ticket routing greps for it
+        weight: 3
+      - type: length
+        unit: sentences
+        max: 3</code></pre>
+
+<p>
+  That rewrite is shorter, warmer, and cheaper to send. A reviewer would approve
+  it. It also drops the literal phrase downstream ticket routing depends on, and
+  swaps a hard sentence cap for "keep it short". Both break silently.
+</p>
+
+<pre><code>regressa compare v1-live v2-candidate --fail-if-worse</code></pre>
+
+<div class="scroll">
+<table>
+  <thead><tr><th>verdict</th><th>case</th><th>v1-live</th><th>v2-candidate</th><th>detail</th></tr></thead>
+  <tbody>
+    <tr>
+      <td class="fail">a_only</td><td><code>escalate-security-breach</code></td>
+      <td class="pass">PASS</td><td class="fail">FAIL</td>
+      <td>missing <code>['escalating to a specialist']</code></td>
+    </tr>
+    <tr>
+      <td class="fail">a_only</td><td><code>brevity</code></td>
+      <td class="pass">PASS</td><td class="fail">FAIL</td>
+      <td>6 sentences &gt; max 3</td>
+    </tr>
+    <tr>
+      <td class="pass">b_only</td><td><code>tone-under-pressure</code></td>
+      <td class="fail">FAIL</td><td class="pass">PASS</td>
+      <td>no filler apology</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<p class="muted">
+  <strong>v2-candidate fails 2 case(s) that v1-live passes.</strong> Not safe to
+  promote as-is — even though it genuinely improves tone.
+</p>
+
+<h2>Assertions</h2>
+
+<div class="grid">
+  <div class="card">
+    <h3>Deterministic</h3>
+    <p><code>contains</code>, <code>regex</code>, <code>equals</code>,
+    <code>json_schema</code>, <code>json_path</code>, <code>length</code>
+    (chars/words/lines/sentences), <code>latency</code>, <code>cost</code>,
+    <code>tokens</code>. Free, fast, never flake — these carry the load.</p>
+  </div>
+  <div class="card">
+    <h3>Model-graded</h3>
+    <p><code>llm_judge</code> grades against a rubric using schema-constrained
+    JSON, so the verdict is parsed rather than scraped from prose.</p>
+  </div>
+  <div class="card">
+    <h3>Semantic</h3>
+    <p><code>similarity</code> scores embedding cosine against a reference.
+    Measures topic, not truth — a flat denial of your refund policy still scores
+    0.52 against it, so don't gate policy on it.</p>
+  </div>
+</div>
+
+<h2>Design decisions worth knowing</h2>
+
+<h3>A provider error is not a regression</h3>
+<p>
+  Network failures are classified <code>errored</code> and kept out of the
+  regression count. A gate that goes red on connectivity is a gate people learn
+  to ignore.
+</p>
+
+<h3>A new failing case is not a regression either</h3>
+<p>
+  It never passed, so nothing regressed. It shows up as <code>added</code>.
+</p>
+
+<h3>Targets are validated before a request is spent</h3>
+<p>
+  <code>temperature</code> and <code>top_p</code> are rejected with a 400 on Opus 5,
+  Sonnet 5, and Fable 5. A suite that sets them would fail every case for a reason
+  unrelated to the prompt, so Regressa refuses the target up front and says which
+  line to change. Same for <code>thinking: disabled</code> above <code>effort: high</code>.
+</p>
+
+<h3>Cost accounting is date-aware</h3>
+<p>
+  Sonnet 5's introductory rate is modelled with an explicit end date rather than
+  baked into the headline price, so costs reflect the rate actually in force.
+  <code>regressa models</code> warns how many days remain — a promotion ending
+  shifts every cost figure with no prompt change, which can trip a
+  <code>cost</code> assertion overnight.
+</p>
+
+<h3>Flapping and jitter are different problems</h3>
+<p>
+  <code>regressa calibrate</code> measures run-to-run variance from stored history
+  and recommends a <code>--tolerance</code>. Cases that flip pass/fail are reported
+  separately and excluded from the recommendation: no tolerance fixes flapping,
+  and widening the gate to cover one would mask real regressions everywhere else.
+</p>
+
+<h2>Try it</h2>
+
+<pre><code>git clone https://github.com/your-org/regressa
+cd regressa
+pip install -e .
+
+regressa run suites/offline-demo.yaml --set-baseline
+regressa run suites/offline-demo.yaml \
+  --var greeting_reply="As an AI language model, I cannot assist."</code></pre>
+
+<p>
+  No API key needed for any of that — the mock provider drives the entire harness,
+  which is also how the 197-test suite runs.
+</p>
+
+<div class="note">
+  <strong>Project status — honest version.</strong> The tooling is complete and
+  tested offline: 197 tests, 88% coverage. The live Anthropic path is
+  <em>partially</em> verified — credentials and request acceptance are confirmed
+  against the real API, but response parsing, cost accounting, streaming, and the
+  capability table have not yet been exercised by a successful call. Run
+  <code>regressa doctor</code> with credit on the account to close that gap.
+  Treat this as a working project, not a finished product.
+</div>
+
+<h2>Prior art</h2>
+<p>
+  This space is not empty. <a href="https://www.promptfoo.dev">promptfoo</a> covers
+  much the same ground — YAML suites, assertions, multi-provider, CI exit codes —
+  at far greater maturity, and is what you should reach for in production.
+  Regressa was built to work the problem from first principles; its distinctive
+  pieces are the pre-flight capability validation, date-aware pricing, and the
+  flapping/jitter split described above.
+</p>
+
+<footer>
+  Regressa · MIT licensed ·
+  <a href="report.html">sample report</a> ·
+  <a href="https://github.com/your-org/regressa">source</a>
+  <br>
+  The sample report is generated by <code>suites/offline-demo.yaml</code> using the
+  mock provider, so it is reproducible from a clean checkout in one command.
+</footer>
+
+</main>
+</body>
+</html>

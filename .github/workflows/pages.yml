@@ -1,0 +1,77 @@
+name: Pages
+
+# Publishes docs/ to GitHub Pages.
+#
+# `docs/report.html` is a real Regressa report, regenerated on every deploy from
+# suites/offline-demo.yaml so the showcase can never drift from what the tool
+# actually produces. It needs no API key: the demo suite uses the mock provider.
+#
+# One-time setup: repository Settings -> Pages -> Source: "GitHub Actions".
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/**"
+      - "src/regressa/reporting/**"
+      - "suites/offline-demo.yaml"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: pip install -e .
+
+      # Build enough history for the trend chart to have something to draw, then
+      # end on a run that contains a regression so the report shows a real diff.
+      - name: Regenerate the sample report
+        run: |
+          regressa run suites/offline-demo.yaml --set-baseline --label known-good
+          regressa run suites/offline-demo.yaml --label reverted || true
+          regressa run suites/offline-demo.yaml --label tightened-system-prompt \
+            --var greeting_reply="As an AI language model, I cannot assist with that." || true
+          regressa report latest -o docs/report.html
+
+      - name: Check the report is self-contained
+        run: |
+          # A Pages artifact that reaches out to a CDN is not self-contained and
+          # will break behind a strict CSP or offline.
+          if grep -qE 'https?://[^"]+\.(css|js)' docs/report.html; then
+            echo "::error::report.html references an external stylesheet or script"
+            exit 1
+          fi
+          test -s docs/index.html
+          test -s docs/report.html
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
