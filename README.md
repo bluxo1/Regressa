@@ -13,6 +13,11 @@ three others. Regressa gives that workflow a test suite, a baseline, and a diff.
 regressa run suites/offline-demo.yaml
 ```
 
+📄 **[Sample report](docs/report.html)** — a real self-contained HTML report,
+regenerated from `suites/offline-demo.yaml` on every Pages deploy so it can't
+drift from what the tool actually produces. `docs/index.html` is the project
+page; enable it under Settings → Pages → Source: "GitHub Actions".
+
 ---
 
 ## Install
