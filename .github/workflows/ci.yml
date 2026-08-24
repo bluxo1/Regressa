@@ -28,9 +28,9 @@ jobs:
         python-version: ["3.11", "3.12", "3.13"]
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
@@ -70,8 +70,8 @@ jobs:
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
 
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
@@ -83,7 +83,8 @@ jobs:
   # The real eval, gated on a key. Runs on demand and nightly rather than per-PR
   # so a prompt suite costs money only when you ask for it.
   #
-  # To enable: add ANTHROPIC_API_KEY to the repository secrets.
+  # To enable: add ANTHROPIC_API_KEY to the repository secrets. Without it the
+  # job's steps skip and the run stays green.
   eval:
     name: prompt eval (live API)
     runs-on: ubuntu-latest
@@ -92,8 +93,8 @@ jobs:
       contents: read
 
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
@@ -101,18 +102,28 @@ jobs:
       - name: Install
         run: pip install -e .
 
-      - name: Fail early if no key is configured
+      - name: Check for the API key
+        id: key
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
+          # A missing key means the eval doesn't run -- it isn't a failure. Exiting
+          # 1 here painted the weekly scheduled run red for a configuration gap
+          # rather than for a regression, which is the only thing that should.
+          #
+          # This has to be a step output: GitHub does not expose the `secrets`
+          # context to a job-level `if:`, so the gate cannot live on the job.
           if [ -z "$ANTHROPIC_API_KEY" ]; then
-            echo "::error::ANTHROPIC_API_KEY is not set in repository secrets"
-            exit 1
+            echo "::warning::ANTHROPIC_API_KEY is not set in repository secrets - skipping the live eval"
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=true" >> "$GITHUB_OUTPUT"
           fi
 
       # One cheap call that verifies the Anthropic integration before spending
       # a whole suite's worth of tokens on it.
       - name: Check the API integration
+        if: steps.key.outputs.present == 'true'
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: regressa doctor
@@ -120,7 +131,8 @@ jobs:
       # Restore history so regressions are measured against the stored baseline
       # rather than starting from scratch every night.
       - name: Restore run history
-        uses: actions/cache@v4
+        if: steps.key.outputs.present == 'true'
+        uses: actions/cache@v6
         with:
           path: .regressa
           key: regressa-history-${{ github.ref_name }}-${{ github.run_id }}
@@ -129,6 +141,7 @@ jobs:
             regressa-history-
 
       - name: Run the suite
+        if: steps.key.outputs.present == 'true'
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
@@ -139,9 +152,10 @@ jobs:
 
       # A/B the two prompt versions. `|| true` because the bundled suite ships a
       # candidate that is deliberately worse — in your own repo, drop it so a bad
-      # candidate fails the job.
+      # candidate fails the job. `always()` so a failing suite still gets compared,
+      # but only when there was a key to run it with.
       - name: Compare prompt versions
-        if: always()
+        if: always() && steps.key.outputs.present == 'true'
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
@@ -149,8 +163,8 @@ jobs:
             --html ab-report.html --json ab-results.json --fail-if-worse || true
 
       - name: Upload reports
-        if: always()
-        uses: actions/upload-artifact@v4
+        if: always() && steps.key.outputs.present == 'true'
+        uses: actions/upload-artifact@v7
         with:
           name: regressa-reports
           path: |
