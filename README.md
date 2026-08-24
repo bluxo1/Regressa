@@ -1,5 +1,9 @@
 # Regressa
 
+[![CI](https://github.com/bluxo1/Regressa/actions/workflows/ci.yml/badge.svg)](https://github.com/bluxo1/Regressa/actions/workflows/ci.yml)
+[![Python 3.11 | 3.12 | 3.13](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue)](pyproject.toml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](#license)
+
 **Prompt evaluation and regression-testing suite.** Run a fixed set of prompts
 against an LLM, check the outputs against expected criteria, and flag
 regressions when prompts, models, or system instructions change.
@@ -13,10 +17,19 @@ three others. Regressa gives that workflow a test suite, a baseline, and a diff.
 regressa run suites/offline-demo.yaml
 ```
 
-📄 **[Sample report](docs/report.html)** — a real self-contained HTML report,
-regenerated from `suites/offline-demo.yaml` on every Pages deploy so it can't
-drift from what the tool actually produces. `docs/index.html` is the project
-page; enable it under Settings → Pages → Source: "GitHub Actions".
+📄 **[See a live sample report](https://bluxo1.github.io/Regressa/report.html)** —
+a real self-contained HTML report, regenerated from `suites/offline-demo.yaml` on
+every Pages deploy, so it can't drift from what the tool actually produces. The
+[project page](https://bluxo1.github.io/Regressa/) is built from `docs/`. (In a
+fork, turn it on under Settings → Pages → Source: "GitHub Actions".)
+
+## Contents
+
+- [Install](#install) · [Quick start](#quick-start) · [Writing a suite](#writing-a-suite)
+- [Detecting regressions](#detecting-regressions) · [Cost, caching, and capability checks](#cost-caching-and-capability-checks)
+- [Running in CI](#running-in-ci) · [Verifying and tuning](#verifying-and-tuning)
+- [CLI reference](#cli-reference) · [Offline development](#offline-development)
+- [Architecture](#architecture) · [Tests](#tests) · [License](#license)
 
 ---
 
@@ -326,12 +339,17 @@ with no external assets, so it attaches to a build cleanly.
 |---|---|---|
 | `test` | every push and PR | no |
 | `similarity` | manual / scheduled | no (installs torch, so it's kept off the hot path) |
-| `eval` | manual / scheduled | yes — `ANTHROPIC_API_KEY` in repository secrets |
+| `eval` | manual / scheduled | optional — skips without `ANTHROPIC_API_KEY` |
 
 The `test` job runs `pytest -m "not slow"`, validates the bundled suites, and
 asserts that a known regression *does* fail the build — a gate nobody has
 verified is a gate you shouldn't trust. The `eval` job runs `regressa doctor`
 first, so a broken integration costs one cheap call instead of a whole suite.
+
+Without the secret, `eval` skips its steps and the run stays green: a clone with
+no key configured shouldn't sit permanently red on a schedule it was never
+going to be able to run. Add `ANTHROPIC_API_KEY` to the repository secrets to
+turn it on.
 
 ---
 

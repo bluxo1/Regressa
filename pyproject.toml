@@ -16,6 +16,7 @@ classifiers = [
   "Intended Audience :: Developers",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
   "Topic :: Software Development :: Testing",
 ]
 
@@ -41,7 +42,9 @@ dev = [
 regressa = "regressa.cli:app"
 
 [project.urls]
-Homepage = "https://github.com/your-org/regressa"
+Homepage = "https://github.com/bluxo1/Regressa"
+Documentation = "https://bluxo1.github.io/Regressa/"
+Issues = "https://github.com/bluxo1/Regressa/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/regressa"]
