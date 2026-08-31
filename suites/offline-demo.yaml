@@ -1,9 +1,9 @@
-# A suite that runs with no API key and no cost, using the mock provider.
+# A suite that runs with no API key and no cost, using the mock provider!
 #
 #   # 1. Record a known-good baseline.
 #   regressa run suites/offline-demo.yaml --set-baseline
 #
-#   # 2. Degrade one behaviour and watch it get caught (exits 1).
+#   # 2. Degrade one behaviour and watch it get caught! (exits 1).
 #   regressa run suites/offline-demo.yaml \
 #     --var greeting_reply="As an AI language model, I cannot assist with that."
 #
