@@ -396,8 +396,8 @@ cached responses are byte-identical by construction, so they measure nothing.
 | `regressa diff BEFORE [AFTER]` | Compare one target across two runs. Accepts a run id, `baseline`, `latest`, `latest~N`. |
 | `regressa compare A B [RUN]` | A/B two targets inside one run. `--fail-if-worse` gates promotion; `--html` / `--json` write artifacts. |
 | `regressa baseline set/show/clear` | Manage the comparison baseline. |
-| `regressa history` | List recorded runs. |
-| `regressa trend` | Score movement across runs. |
+| `regressa history` | List recorded runs, newest first. `--suite` filters to one suite; `-n` caps the number of runs (default 20). |
+| `regressa trend` | Score movement across runs. `--suite` narrows to one suite, otherwise every suite with history is shown; `-n` caps the number of runs (default 30). |
 | `regressa show [RUN]` | Print a stored run. |
 | `regressa report [RUN]` | Write an HTML report. |
 | `regressa doctor` | Verify the live Anthropic integration. Needs a key; costs a fraction of a cent. |
