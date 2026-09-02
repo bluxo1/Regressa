@@ -36,6 +36,7 @@ similarity = ["sentence-transformers>=3.0"]
 dev = [
   "pytest>=8.0",
   "pytest-cov>=5.0",
+  "ruff>=0.6",
 ]
 
 [project.scripts]

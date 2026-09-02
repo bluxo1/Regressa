@@ -301,9 +301,11 @@ def compare(
 
 @app.command(name="history")
 def history_cmd(
-    suite: Optional[str] = typer.Option(None, "--suite", "-s"),
-    limit: int = typer.Option(20, "--limit", "-n", min=1),
-    db: Optional[str] = typer.Option(None, "--db"),
+    suite: Optional[str] = typer.Option(
+        None, "--suite", "-s", help="Only list runs from this suite."
+    ),
+    limit: int = typer.Option(20, "--limit", "-n", min=1, help="Runs to list."),
+    db: Optional[str] = typer.Option(None, "--db", help="SQLite history file."),
 ) -> None:
     """List recorded runs, newest first."""
     with Store(db) as store:
@@ -316,9 +318,11 @@ def history_cmd(
 
 @app.command()
 def trend(
-    suite: Optional[str] = typer.Option(None, "--suite", "-s"),
-    limit: int = typer.Option(30, "--limit", "-n", min=2),
-    db: Optional[str] = typer.Option(None, "--db"),
+    suite: Optional[str] = typer.Option(
+        None, "--suite", "-s", help="Chart one suite. Omit for every suite with history."
+    ),
+    limit: int = typer.Option(30, "--limit", "-n", min=2, help="Runs to chart."),
+    db: Optional[str] = typer.Option(None, "--db", help="SQLite history file."),
 ) -> None:
     """Show score movement across runs of a suite."""
     with Store(db) as store:
